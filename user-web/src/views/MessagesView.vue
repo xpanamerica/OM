@@ -36,7 +36,7 @@ const displayRows = computed(() => {
   const conversationRows = conversations.value.slice(0, 8).map((c) => ({
     id: `conversation-${c.id}`,
     title: c.peer.username,
-    body: c.last_message_preview || messagePreview(c.last_message?.body),
+    body: messagePreview(c.last_message_preview || c.last_message?.body),
     date: c.updated_at || c.last_message?.created_at || new Date().toISOString(),
     unread: c.unread_count > 0,
     avatar: c.peer.username.slice(0, 1).toUpperCase(),
@@ -55,7 +55,7 @@ const displayRows = computed(() => {
   const notificationRows = visibleItems.slice(0, 20).map((row) => ({
     id: row.id,
     title: row.title,
-    body: row.body || "查看详情",
+    body: row.kind === "direct_message" ? messagePreview(row.body) : row.body || "查看详情",
     date: row.created_at,
     unread: !row.read_at,
     avatar: iconForKind(row.kind),
@@ -87,6 +87,16 @@ function messagePreview(raw: string | null | undefined) {
     /* plain text */
   }
   return raw.trim() || "新消息";
+}
+
+function directMessagePeerId(row: notificationsApi.UserNotification) {
+  const fromUrl = row.action_url?.match(/^\/me\/direct-messages\/([^/?#]+)/)?.[1];
+  if (fromUrl) return fromUrl;
+  if (row.kind !== "direct_message") return "";
+  const matchedConversation = conversations.value.find((c) => row.title.includes(c.peer.username));
+  if (matchedConversation) return matchedConversation.peer.id;
+  const matchedFriend = friends.value.find((friend) => row.title.includes(friend.username));
+  return matchedFriend?.id || "";
 }
 
 function timeLabel(raw: string) {
@@ -146,6 +156,11 @@ async function openRow(row: notificationsApi.UserNotification) {
     } catch (e) {
       ElMessage.error(formatApiError(e));
     }
+  }
+  const peerId = directMessagePeerId(row);
+  if (peerId) {
+    void router.push({ name: "direct-messages", params: { peerId } });
+    return;
   }
   if (row.action_url?.startsWith("/")) {
     void router.push(row.action_url);
@@ -266,6 +281,8 @@ onMounted(() => void load());
   min-height: 100%;
   margin: 0 -10px;
   padding: 8px 12px 24px;
+  max-width: calc(100vw - 0px);
+  overflow-x: hidden;
   background:
     radial-gradient(circle at 16% -10%, rgba(34, 211, 238, 0.28), transparent 34%),
     radial-gradient(circle at 96% 2%, rgba(59, 130, 246, 0.2), transparent 28%),
@@ -431,9 +448,10 @@ onMounted(() => void load());
 .message-row,
 .discover-row {
   width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 10px 0;
   border: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -482,12 +500,22 @@ onMounted(() => void load());
   font-size: 12px;
 }
 .row-side {
-  min-width: 54px;
+  width: 48px;
+  min-width: 48px;
+  max-width: 48px;
+  flex: 0 0 48px;
   display: grid;
   justify-items: end;
   gap: 8px;
   color: #64748b;
   font-size: 12px;
+}
+.row-side small {
+  max-width: 100%;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .row-side i {
   width: 8px;

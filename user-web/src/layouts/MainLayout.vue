@@ -186,6 +186,8 @@ async function logout() {
     padding: 10px 14px;
     padding-top: max(10px, env(safe-area-inset-top, 0px));
     flex-wrap: wrap;
+    border-bottom-color: rgba(255, 255, 255, 0.07);
+    background: #050506;
   }
   .main-layout--native .header {
     min-height: 42px;

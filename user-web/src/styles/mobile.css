@@ -27,6 +27,23 @@ html {
   #app {
     overscroll-behavior-x: none;
   }
+  #app,
+  #app * {
+    max-width: 100%;
+  }
+  #app .main-layout,
+  #app .el-container,
+  #app .el-main,
+  #app .native-stack {
+    min-width: 0;
+    overflow-x: hidden;
+  }
+  #app img,
+  #app video,
+  #app canvas,
+  #app svg {
+    max-width: 100%;
+  }
 }
 
 /* 列表页：桌面表格 / 移动卡片 切换 */

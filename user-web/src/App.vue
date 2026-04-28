@@ -35,10 +35,34 @@ body,
 }
 
 @media (max-width: 767px) {
+  html {
+    color-scheme: dark;
+    --el-bg-color: #050506;
+    --el-bg-color-page: #050506;
+    --el-bg-color-overlay: #0e0e12;
+    --el-fill-color-blank: #050506;
+    --el-border-color: rgba(255, 255, 255, 0.08);
+    --el-border-color-light: rgba(255, 255, 255, 0.08);
+    --el-border-color-lighter: rgba(255, 255, 255, 0.06);
+    --el-text-color-primary: #f4f4f5;
+    --el-text-color-regular: #d4d4d8;
+    --el-text-color-secondary: #a1a1aa;
+  }
   html,
   body,
   #app,
   .main-content-root {
+    background: #050506;
+  }
+  body {
+    min-height: 100dvh;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+  }
+  .main-content-root,
+  .el-container,
+  .el-main {
+    min-height: 100%;
     background: #050506;
   }
 }

@@ -130,25 +130,43 @@ export function MessagesScreen(_props: Props) {
         /* ignore */
       }
     }
+    if (row.kind === "direct_message") {
+      const peerId = directMessagePeerId(row);
+      if (peerId) {
+        _props.navigation.getParent()?.navigate("DirectMessages", { peerId });
+        return;
+      }
+    }
     openActionUrl(row.action_url);
   }
 
-  function openActionUrl(actionUrl: string | null) {
-    if (!actionUrl) return;
+  function directMessagePeerId(row: notificationsApi.UserNotification): string {
+    const urlPeerId = row.action_url?.match(/^\/me\/direct-messages\/([^/?#]+)/)?.[1];
+    if (urlPeerId) return urlPeerId;
+    const matchedConversation = conversations.find((conversation) => row.title.includes(conversation.peer.username));
+    if (matchedConversation) return matchedConversation.peer.id;
+    const matchedFriend = friends.find((friend) => row.title.includes(friend.username));
+    return matchedFriend?.id || "";
+  }
+
+  function openActionUrl(actionUrl: string | null): boolean {
+    if (!actionUrl) return false;
     const videoMatch = actionUrl.match(/^\/videos\/([^/?#]+)/);
     if (videoMatch?.[1]) {
       _props.navigation.getParent()?.navigate("Detail", { id: videoMatch[1] });
-      return;
+      return true;
     }
     const userMatch = actionUrl.match(/^\/users\/([^/?#]+)/);
     if (userMatch?.[1]) {
       _props.navigation.getParent()?.navigate("UserProfile", { id: userMatch[1] });
-      return;
+      return true;
     }
     const dmMatch = actionUrl.match(/^\/me\/direct-messages\/([^/?#]+)/);
     if (dmMatch?.[1]) {
       _props.navigation.getParent()?.navigate("DirectMessages", { peerId: dmMatch[1] });
+      return true;
     }
+    return false;
   }
 
   const unreadCount = items.filter((item) => !item.read_at).length;
@@ -221,7 +239,7 @@ export function MessagesScreen(_props: Props) {
                   ) : null}
                 </View>
                 <Text style={styles.quickTitle}>{card.title}</Text>
-                <Text style={styles.quickCount}>{activeFilter === card.key ? "正在查看" : "点击查看"}</Text>
+                {activeFilter === card.key ? <Text style={styles.quickCount}>正在查看</Text> : null}
               </Pressable>
             ))}
           </View>
@@ -269,7 +287,7 @@ export function MessagesScreen(_props: Props) {
               <View style={styles.avatar}><Ionicons name="chatbubble-ellipses" size={20} color="#fff" /></View>
               <View style={styles.rowMain}>
                 <Text style={[styles.rowTitle, item.conversation.unread_count > 0 && styles.rowTitleUnread]} numberOfLines={1}>{item.conversation.peer.username}</Text>
-                <Text style={styles.body} numberOfLines={1}>{item.conversation.last_message_preview || messagePreview(item.conversation.last_message?.body)}</Text>
+                <Text style={styles.body} numberOfLines={1}>{messagePreview(item.conversation.last_message_preview || item.conversation.last_message?.body)}</Text>
               </View>
               <View style={styles.rowSide}>
                 <Text style={styles.meta}>{timeLabel(item.conversation.updated_at || item.conversation.last_message?.created_at || new Date().toISOString())}</Text>
@@ -286,7 +304,9 @@ export function MessagesScreen(_props: Props) {
               <View style={styles.avatar}><Ionicons name={iconForKind(item.notification.kind) as keyof typeof Ionicons.glyphMap} size={20} color="#fff" /></View>
             <View style={styles.rowMain}>
               <Text style={[styles.rowTitle, !item.notification.read_at && styles.rowTitleUnread]} numberOfLines={1}>{item.notification.title}</Text>
-              {item.notification.body ? <Text style={styles.body} numberOfLines={1}>{item.notification.body}</Text> : <Text style={styles.body} numberOfLines={1}>查看详情</Text>}
+              <Text style={styles.body} numberOfLines={1}>
+                {item.notification.kind === "direct_message" ? messagePreview(item.notification.body) : item.notification.body || "查看详情"}
+              </Text>
             </View>
             <View style={styles.rowSide}>
               <Text style={styles.meta}>{timeLabel(item.notification.created_at)}</Text>
@@ -352,7 +372,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     paddingVertical: 12,
   },
   requestRow: { backgroundColor: "rgba(34,211,238,0.12)", borderRadius: 18, paddingHorizontal: 12, marginBottom: 6 },
@@ -363,12 +383,12 @@ const styles = StyleSheet.create({
   reqRejectTxt: { color: "#cbd5e1", fontWeight: "900", fontSize: 12 },
   avatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent },
   avatarTxt: { color: "#fff", fontSize: 15, fontWeight: "900" },
-  rowMain: { flex: 1, minWidth: 0 },
+  rowMain: { flex: 1, flexShrink: 1, minWidth: 0 },
   rowTitle: { color: colors.text, fontSize: 16, fontWeight: "800" },
   rowTitleUnread: { fontWeight: "900" },
   body: { color: colors.textMuted, fontSize: 14, marginTop: 4 },
-  rowSide: { minWidth: 54, alignItems: "flex-end", gap: 9 },
-  meta: { color: "#64748b", fontSize: 12 },
+  rowSide: { width: 48, minWidth: 48, flexShrink: 0, alignItems: "flex-end", gap: 9 },
+  meta: { color: "#64748b", fontSize: 12, textAlign: "right" },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#ff2d55" },
   empty: { color: colors.textMuted, textAlign: "center", marginTop: 24 },
   recommend: { marginTop: 18 },

@@ -132,7 +132,7 @@ function messagePreview(raw: string | null | undefined) {
 }
 
 function conversationPreview(c: socialApi.DirectConversation) {
-  return c.last_message_preview || messagePreview(c.last_message?.body);
+  return messagePreview(c.last_message_preview || c.last_message?.body);
 }
 
 function appendEmoji(emoji: string) {

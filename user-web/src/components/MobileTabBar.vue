@@ -115,12 +115,12 @@ function ariaPage(on: boolean): "page" | undefined {
   bottom: 0;
   z-index: 2000;
   box-sizing: border-box;
-  background: var(--el-bg-color);
-  background: color-mix(in srgb, var(--el-bg-color) 94%, transparent);
+  background: #050506;
+  background: color-mix(in srgb, var(--el-bg-color, #050506) 94%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-top: 1px solid var(--el-border-color-lighter);
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.07);
+  border-top: 1px solid var(--el-border-color-lighter, rgba(255, 255, 255, 0.06));
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.28);
 }
 
 .m-tabbar--xhs {

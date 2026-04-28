@@ -330,7 +330,7 @@ onMounted(() => {
   position: relative;
   z-index: 1;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 18px;
   margin-bottom: 12px;
@@ -357,28 +357,35 @@ onMounted(() => {
 
 .mode-chip {
   flex-shrink: 0;
-  display: grid;
-  gap: 4px;
+  min-width: 132px;
+  min-height: 78px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid rgba(103, 232, 249, 0.22);
   border-radius: 16px;
-  padding: 10px 14px;
+  padding: 10px 18px;
   background: rgba(2, 6, 23, 0.62);
   color: #e0f2fe;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
 }
 
 .mode-chip span {
   color: #67e8f9;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 900;
   letter-spacing: 0.08em;
+  line-height: 1.1;
 }
 
 .mode-chip b {
   color: #f8fafc;
   font-size: 18px;
   font-weight: 950;
+  line-height: 1.12;
 }
 
 .search-row {

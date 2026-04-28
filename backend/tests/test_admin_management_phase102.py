@@ -57,6 +57,7 @@ def test_non_admin_all_admin_endpoints_return_403(client, db_session):
     uid = str(uuid.uuid4())
     assert client.patch(f"{base}/users/{uid}/active", headers=hdr, json={"is_active": False}).status_code == 403
     assert client.delete(f"{base}/users/{uid}", headers=hdr).status_code == 403
+    assert client.delete(f"{base}/users/inactive", headers=hdr).status_code == 403
 
 
 def test_admin_list_videos_filter_status(client, db_session):
@@ -153,6 +154,7 @@ def test_openapi_contains_admin_routes_when_exposed(client):
         f"{prefix}/admin/statistics/platform",
         f"{prefix}/admin/users/{{user_id}}/active",
         f"{prefix}/admin/users/{{user_id}}",
+        f"{prefix}/admin/users/inactive",
     )
     assert "admin" in collect_operation_tags(paths)
 
@@ -250,6 +252,43 @@ def test_admin_cannot_delete_self(client, db_session):
     uid = next(row["id"] for row in r_users.json() if row["username"] == uname)
     r = client.delete(f"{settings.API_V1_PREFIX}/admin/users/{uid}", headers=adm)
     assert r.status_code == 403
+
+
+def test_admin_delete_inactive_users_soft_deletes_only_disabled_accounts(client, db_session):
+    adm = _admin_hdr(db_session, client)
+    for idx in range(2):
+        user_repository.create_user(
+            db_session,
+            email=f"inactive-bulk-{idx}@example.com",
+            username=f"inactivebulk{idx}",
+            hashed_password=get_password_hash("secret1234"),
+            is_active=False,
+        )
+    active = user_repository.create_user(
+        db_session,
+        email="active-bulk@example.com",
+        username="activebulk",
+        hashed_password=get_password_hash("secret1234"),
+        is_active=True,
+    )
+    db_session.commit()
+
+    r = client.delete(f"{settings.API_V1_PREFIX}/admin/users/inactive", headers=adm)
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] == 2
+
+    inactive_rows = db_session.execute(
+        select(User).where(User.username.in_(["inactivebulk0", "inactivebulk1"]))
+    ).scalars().all()
+    assert len(inactive_rows) == 2
+    assert all(row.deleted_at is not None for row in inactive_rows)
+    db_session.refresh(active)
+    assert active.deleted_at is None
+    assert active.is_active is True
+
+    r_again = client.delete(f"{settings.API_V1_PREFIX}/admin/users/inactive", headers=adm)
+    assert r_again.status_code == 200
+    assert r_again.json()["deleted"] == 0
 
 
 def test_admin_delete_video_returns_204_and_removes_row(client, db_session):

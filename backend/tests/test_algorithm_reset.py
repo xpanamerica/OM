@@ -148,12 +148,23 @@ def test_algorithm_mode_can_be_switched_and_feed_reports_mode(client, db_session
     assert state is not None
     assert state.mode == "growth"
     assert state.algorithm_parameters["challenge"] == 90
+    own_video = Video(
+        title="mode own published",
+        author_id=user_id,
+        status=VideoStatus.PUBLISHED,
+        views_count=99,
+        likes_count=9,
+        favorites_count=3,
+    )
+    db_session.add(own_video)
+    db_session.commit()
 
-    feed = client.get(f"{settings.API_V1_PREFIX}/videos/feed", params={"limit": 3, "page": 1}, headers=headers)
+    feed = client.get(f"{settings.API_V1_PREFIX}/videos/feed", params={"limit": 10, "page": 1}, headers=headers)
     assert feed.status_code == 200, feed.text
     payload = feed.json()
     assert payload["algorithmMode"] == "growth"
     assert payload["personalized"] is True
+    assert str(own_video.id) in {item["id"] for item in payload["items"]}
     assert "成长模式" in payload["explanation"]
     assert "认知挑战" in payload["items"][0]["recommendation_reason"]
     assert sum(payload["items"][0]["recommendation_reason"].values()) == 100
@@ -344,22 +355,22 @@ def test_origin_mode_feed_uses_balanced_non_follow_only_strategy(client, db_sess
     state = db_session.scalar(select(UserAlgorithmState).where(UserAlgorithmState.user_id == user_id))
     assert state is not None
 
-    r = client.get(f"{settings.API_V1_PREFIX}/videos", params={"limit": 4}, headers=headers)
+    r = client.get(f"{settings.API_V1_PREFIX}/videos", params={"limit": 5}, headers=headers)
     assert r.status_code == 200, r.text
     rows = r.json()
-    assert len(rows) == 4
+    assert len(rows) == 5
     author_ids = [row["author_id"] for row in rows]
     assert len(set(author_ids)) > 1
-    assert str(user_id) not in author_ids
+    assert str(user_id) in author_ids
 
-    feed = client.get(f"{settings.API_V1_PREFIX}/videos/feed", params={"limit": 4, "page": 1}, headers=headers)
+    feed = client.get(f"{settings.API_V1_PREFIX}/videos/feed", params={"limit": 5, "page": 1}, headers=headers)
     assert feed.status_code == 200, feed.text
     payload = feed.json()
     assert payload["algorithmMode"] == "origin"
     assert payload["personalized"] is False
     assert payload["explanation"] == "归源模式已开启：你正在随机、多元地重新探索世界。"
-    assert len(payload["items"]) == 4
-    assert str(user_id) not in [row["author_id"] for row in payload["items"]]
+    assert len(payload["items"]) == 5
+    assert str(user_id) in [row["author_id"] for row in payload["items"]]
 
 
 def test_origin_feed_forces_origin_mode_when_personalized_false_is_dirty(client, db_session):

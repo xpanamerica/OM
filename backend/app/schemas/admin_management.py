@@ -38,3 +38,9 @@ class AdminUserActiveBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     is_active: bool = Field(description="``true`` 启用，``false`` 禁用")
+
+
+class AdminBulkDeleteUsersOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    deleted: int = Field(ge=0, description="本次软删除的用户数量")

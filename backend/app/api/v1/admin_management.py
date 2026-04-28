@@ -12,6 +12,7 @@ from app.api.deps import DbSession
 from app.api.v1.http_cache_control import MUTABLE_GET_CACHE_CONTROL, set_mutation_cache_control
 from app.models.enums import UserRole, VideoStatus
 from app.schemas.admin_management import (
+    AdminBulkDeleteUsersOut,
     AdminPlatformSettingsOut,
     AdminPlatformSettingsUpdate,
     AdminPlatformStatsOut,
@@ -129,6 +130,17 @@ def admin_set_user_active(
     return admin_management_service.set_user_active_for_admin(
         db, admin, user_id, is_active=body.is_active
     )
+
+
+@router.delete(
+    "/users/inactive",
+    response_model=AdminBulkDeleteUsersOut,
+    summary="删除所有未启用用户",
+    description="须管理员。软删除全部 ``is_active=false`` 且未删除的用户；已启用用户不受影响。",
+    dependencies=[Depends(set_mutation_cache_control)],
+)
+def admin_delete_inactive_users(db: DbSession, admin: AdminUser) -> AdminBulkDeleteUsersOut:
+    return admin_management_service.delete_inactive_users_for_admin(db, admin)
 
 
 @router.delete(

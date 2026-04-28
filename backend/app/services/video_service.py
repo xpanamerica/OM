@@ -443,7 +443,6 @@ def _recommendation_reasons_for_items(
 def _origin_feed_pool(
     db: Session,
     *,
-    viewer_id: uuid.UUID,
     offset: int,
     limit: int,
 ) -> list[Video]:
@@ -459,7 +458,7 @@ def _origin_feed_pool(
         author_id=None,
         follower_id_for_following=None,
     )
-    return [video for video in pool if video.author_id != viewer_id]
+    return pool
 
 
 def get_video(db: Session, video_id: uuid.UUID, viewer: User | None) -> Video:
@@ -526,7 +525,6 @@ def list_videos(
         page = max(offset // max(limit, 1) + 1, 1)
         pool = _origin_feed_pool(
             db,
-            viewer_id=viewer.id,
             offset=offset,
             limit=limit,
         )
@@ -587,7 +585,7 @@ def list_feed_videos(
     if viewer is not None and algorithm_reset_service.is_origin_mode(db, user_id=viewer.id):
         state = algorithm_reset_service.get_algorithm_state(db, user_id=viewer.id) or {}
         seed = str(state.get("explorationSeed") or viewer.id)
-        pool = _origin_feed_pool(db, viewer_id=viewer.id, offset=offset, limit=limit)
+        pool = _origin_feed_pool(db, offset=offset, limit=limit)
         mode = "origin"
         params = state.get("parameters") if isinstance(state.get("parameters"), dict) else {}
         items = _algorithm_feed_order(pool, mode=mode, parameters=params, seed=seed, page=page, offset=offset, limit=limit)
@@ -615,7 +613,7 @@ def list_feed_videos(
         if mode in {"efficiency", "growth", "emotion", "custom"}:
             seed = str(state.get("explorationSeed") or viewer.id)
             params = state.get("parameters") if isinstance(state.get("parameters"), dict) else {}
-            pool = _origin_feed_pool(db, viewer_id=viewer.id, offset=offset, limit=limit)
+            pool = _origin_feed_pool(db, offset=offset, limit=limit)
             items = _algorithm_feed_order(pool, mode=mode, parameters=params, seed=seed, page=page, offset=offset, limit=limit)
             reasons = _recommendation_reasons_for_items(
                 items,

@@ -77,6 +77,11 @@ export async function adminDeleteUser(userId: string): Promise<void> {
   await http.delete(`/admin/users/${userId}`);
 }
 
+export async function adminDeleteInactiveUsers(): Promise<{ deleted: number }> {
+  const { data } = await http.delete<{ deleted: number }>("/admin/users/inactive");
+  return data;
+}
+
 export async function adminPlatformStats(): Promise<AdminPlatformStats> {
   const { data } = await http.get<AdminPlatformStats>("/admin/statistics/platform");
   return data;

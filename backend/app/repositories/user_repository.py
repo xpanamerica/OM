@@ -157,3 +157,17 @@ def soft_delete_user(db: Session, *, user_id: uuid.UUID) -> User | None:
     db.add(u)
     db.flush()
     return u
+
+
+def soft_delete_inactive_users(db: Session) -> int:
+    now = datetime.now(timezone.utc)
+    rows = list(
+        db.execute(
+            select(User).where(User.deleted_at.is_(None), User.is_active.is_(False))
+        ).scalars().all()
+    )
+    for user in rows:
+        user.deleted_at = now
+        db.add(user)
+    db.flush()
+    return len(rows)

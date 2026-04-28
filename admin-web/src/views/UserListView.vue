@@ -16,6 +16,7 @@ const filters = reactive({
 
 const toggling = ref<string | null>(null);
 const deleting = ref<string | null>(null);
+const deletingInactive = ref(false);
 
 async function load() {
   loading.value = true;
@@ -69,6 +70,26 @@ async function confirmDelete(row: adminApi.UserPublic) {
   }
 }
 
+async function confirmDeleteInactiveUsers() {
+  try {
+    await ElMessageBox.confirm(
+      "确认删除所有未启用用户？这些账号将无法登录，并从后台用户列表中移除。已启用用户不会受影响。",
+      "删除未启用用户",
+      { type: "warning", confirmButtonText: "全部删除", cancelButtonText: "取消" },
+    );
+    deletingInactive.value = true;
+    const result = await adminApi.adminDeleteInactiveUsers();
+    ElMessage.success(result.deleted > 0 ? `已删除 ${result.deleted} 个未启用用户` : "当前没有未启用用户需要删除");
+    page.offset = 0;
+    await load();
+  } catch (e) {
+    if (e === "cancel" || e === "close") return;
+    ElMessage.error(formatApiError(e));
+  } finally {
+    deletingInactive.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -85,6 +106,9 @@ onMounted(load);
       </el-select>
       <el-input v-model="filters.keyword" clearable placeholder="邮箱或用户名" style="width: 220px" />
       <el-button type="primary" @click="((page.offset = 0), load())">查询</el-button>
+      <el-button type="danger" :loading="deletingInactive" @click="confirmDeleteInactiveUsers">
+        删除未启用用户
+      </el-button>
     </el-space>
 
     <el-table v-loading="loading" :data="rows" border stripe size="small">

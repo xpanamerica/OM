@@ -17,7 +17,7 @@ from app.core.exceptions import AppError
 from app.models.enums import UserRole, VideoStatus
 from app.models.user import User
 from app.repositories import user_repository, video_repository
-from app.schemas.admin_management import AdminPlatformStatsOut
+from app.schemas.admin_management import AdminBulkDeleteUsersOut, AdminPlatformStatsOut
 from app.schemas.user import UserPublic
 from app.schemas.video import VideoListItem
 
@@ -108,6 +108,12 @@ def delete_user_for_admin(db: Session, actor: User, user_id: uuid.UUID) -> None:
     if deleted is None:
         raise AppError("用户不存在", status_code=404, code=ADMIN_USER_NOT_FOUND)
     db.commit()
+
+
+def delete_inactive_users_for_admin(db: Session, _actor: User) -> AdminBulkDeleteUsersOut:
+    deleted = user_repository.soft_delete_inactive_users(db)
+    db.commit()
+    return AdminBulkDeleteUsersOut(deleted=deleted)
 
 
 def get_platform_statistics(db: Session) -> AdminPlatformStatsOut:

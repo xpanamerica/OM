@@ -10,6 +10,7 @@ import * as videosApi from "@/api/videos";
 import { formatApiError } from "@/util/errors";
 import { imageFileToJpegFile } from "@/util/imageToJpegFile";
 import { injectAliplayerCssOnce } from "@/util/aliplayerAssets";
+import { resolveApiAssetUrl } from "@/util/resolveApiAssetUrl";
 
 const route = useRoute();
 const router = useRouter();
@@ -69,6 +70,13 @@ const videoStatusLabel = computed(() => {
   const s = video.value?.status;
   return s ? VIDEO_STATUS_LABEL[s] ?? s : "";
 });
+const canPreviewVideo = computed(() => {
+  const st = video.value?.status;
+  if (!st) return false;
+  return st === "published" || (isVideoAuthor.value && ["draft", "pending_review", "rejected", "offline"].includes(st));
+});
+const coverUrl = computed(() => resolveApiAssetUrl(video.value?.cover_url || ""));
+const titleInitial = computed(() => (video.value?.title?.trim()?.slice(0, 1).toUpperCase() || "OM"));
 
 /** 与后端一致：仅 published 可评论 */
 const canCommentOnThisVideo = computed(() => video.value?.status === "published");
@@ -257,6 +265,37 @@ async function startPlayback() {
 
 function goAuthForInteraction() {
   void router.push({ name: "auth", query: { redirect: route.fullPath } });
+}
+
+function formatCount(value: number | null | undefined): string {
+  const n = Number(value ?? 0);
+  if (n >= 10000) return `${(n / 10000).toFixed(n >= 100000 ? 0 : 1)}万`;
+  return String(n);
+}
+
+function formatDate(raw: string | null | undefined): string {
+  if (!raw) return "未发布";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleString([], { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDuration(seconds: number | null | undefined): string {
+  if (!seconds || seconds <= 0) return "未知时长";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function handleEditCommand(command: string) {
+  if (command === "cover") coverDetailInputRef.value?.click();
+  if (command === "local-video") localVideoDetailInputRef.value?.click();
+  if (command === "attachment") attachDetailInputRef.value?.click();
 }
 
 async function onLikeClick() {
@@ -485,24 +524,157 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-loading="loading">
+  <div v-loading="loading" class="video-detail-shell">
     <el-empty
       v-if="!loading && videoNotFound"
       description="视频不存在、未发布或无权查看"
     />
     <template v-else-if="video">
-      <H5BackLink :to="{ name: 'videos' }" label="返回视频列表" />
-      <h2>{{ video.title ?? "（无标题）" }}</h2>
-      <p class="meta">
-        {{ video.views_count ?? 0 }} 播放 · {{ likesCount }} 赞 · {{ favCount }} 收藏
-        ·
-        <RouterLink class="author-link" :to="{ name: 'user-profile', params: { id: video.author_id } }">
-          作者主页
-        </RouterLink>
-        <span v-if="video.published_at"> · 发布于 {{ video.published_at }}</span>
-        <span v-if="isVideoAuthor && videoStatusLabel"> · 状态：{{ videoStatusLabel }}</span>
-      </p>
-      <p v-if="video.description" class="desc">{{ video.description }}</p>
+      <section class="video-detail-page">
+        <div class="detail-nav">
+          <H5BackLink :to="{ name: 'videos' }" label="返回视频列表" />
+          <el-dropdown v-if="isVideoAuthor" trigger="click" popper-class="video-edit-menu" @command="handleEditCommand">
+            <el-button class="edit-trigger" type="primary">
+              编辑
+              <span aria-hidden="true">⌄</span>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="cover">上传或替换封面</el-dropdown-item>
+                <el-dropdown-item command="local-video">上传或替换本站视频</el-dropdown-item>
+                <el-dropdown-item command="attachment">上传稿件附件</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+
+        <input
+          v-if="isVideoAuthor"
+          ref="coverDetailInputRef"
+          type="file"
+          class="att-file-input"
+          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+          @change="onPickCoverDetail"
+        />
+        <input
+          v-if="isVideoAuthor"
+          ref="localVideoDetailInputRef"
+          type="file"
+          class="att-file-input"
+          accept=".mp4,.mov,.mkv,.webm,video/*"
+          @change="onPickLocalVideoDetail"
+        />
+        <input
+          v-if="isVideoAuthor"
+          ref="attachDetailInputRef"
+          type="file"
+          class="att-file-input"
+          multiple
+          @change="onAddAttachmentDetail"
+        />
+
+        <section class="detail-hero">
+          <div class="preview-card">
+            <div
+              v-if="canPreviewVideo"
+              class="player-shell hero-player"
+              :class="{ 'player-shell--active': !!player || !!localPlaySrc }"
+              aria-live="polite"
+            >
+              <video
+                v-if="localPlaySrc"
+                class="player-box"
+                controls
+                playsinline
+                preload="metadata"
+                crossorigin="anonymous"
+                :src="localPlaySrc"
+                :style="{ width: '100%', height: aliPlayerHeightPx(), background: '#000' }"
+                @timeupdate="onLocalVideoTimeupdate"
+              />
+              <div v-else id="ali-player-wrap" class="player-box" />
+              <div v-if="!localPlaySrc && !player" class="preview-placeholder">
+                <img v-if="coverUrl" :src="coverUrl" alt="" />
+                <span v-else class="cover-fallback">{{ titleInitial }}</span>
+                <div class="preview-overlay">
+                  <b>视频预览</b>
+                  <small>{{ canPreviewVideo ? "加载播放器后可预览/播放" : "当前状态暂不可播放" }}</small>
+                  <el-button type="primary" round :loading="playLoading" :disabled="!canPreviewVideo" @click="startPlayback">
+                    加载播放器
+                  </el-button>
+                </div>
+              </div>
+            </div>
+            <div v-else class="player-shell hero-player">
+              <div class="preview-placeholder">
+                <img v-if="coverUrl" :src="coverUrl" alt="" />
+                <span v-else class="cover-fallback">{{ titleInitial }}</span>
+                <div class="preview-overlay">
+                  <b>暂不可公开播放</b>
+                  <small>稿件通过审核并发布后将开放播放。</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="detail-panel">
+            <div class="status-row">
+              <span class="status-pill">{{ videoStatusLabel || "未知状态" }}</span>
+              <span>{{ formatDuration(video.duration_seconds) }}</span>
+            </div>
+            <h1>{{ video.title ?? "（无标题）" }}</h1>
+            <p v-if="video.description" class="desc">{{ video.description }}</p>
+            <p v-else class="desc desc--muted">作者还没有填写简介。</p>
+            <div class="meta-line">
+              <RouterLink class="author-link" :to="{ name: 'user-profile', params: { id: video.author_id } }">
+                作者主页
+              </RouterLink>
+              <span>发布于 {{ formatDate(video.published_at) }}</span>
+            </div>
+            <div class="stat-grid" aria-label="播放与互动信息">
+              <span>
+                <b>{{ formatCount(video.views_count) }}</b>
+                <small>播放</small>
+              </span>
+              <span>
+                <b>{{ formatCount(likesCount) }}</b>
+                <small>点赞</small>
+              </span>
+              <span>
+                <b>{{ formatCount(favCount) }}</b>
+                <small>收藏</small>
+              </span>
+              <span>
+                <b>{{ formatCount(commentTotal) }}</b>
+                <small>评论</small>
+              </span>
+            </div>
+            <div class="actions hero-actions" role="group" aria-label="点赞与收藏">
+              <el-button
+                class="act-btn"
+                :class="{ 'act-btn--guest': !auth.isLoggedIn }"
+                :type="auth.isLoggedIn && my?.liked ? 'primary' : 'default'"
+                :plain="!auth.isLoggedIn"
+                @click="onLikeClick"
+              >
+                <span class="act-btn__label">{{ auth.isLoggedIn && my?.liked ? "已赞" : "点赞" }}</span>
+                <span v-if="likesCount > 0" class="act-btn__count" aria-hidden="true">{{ likesCount }}</span>
+              </el-button>
+              <el-button
+                class="act-btn"
+                :class="{ 'act-btn--guest': !auth.isLoggedIn }"
+                :type="auth.isLoggedIn && my?.favorited ? 'warning' : 'default'"
+                :plain="!auth.isLoggedIn"
+                @click="onFavoriteClick"
+              >
+                <span class="act-btn__label">{{ auth.isLoggedIn && my?.favorited ? "已收藏" : "收藏" }}</span>
+                <span v-if="favCount > 0" class="act-btn__count" aria-hidden="true">{{ favCount }}</span>
+              </el-button>
+            </div>
+            <p v-if="playInfo?.expire_time" class="play-expire">播放凭证有效期至 {{ formatDate(playInfo.expire_time) }}</p>
+          </aside>
+        </section>
+      </section>
 
       <el-alert
         v-if="isVideoAuthor && video.status === 'draft'"
@@ -549,114 +721,25 @@ onBeforeUnmount(() => {
         </el-space>
       </div>
 
-      <div v-if="isVideoAuthor" class="block">
-        <h3>封面图</h3>
-        <p class="hint">JPEG；上传后用于首页与列表展示（通过审核且已发布后对外可见）。</p>
-        <input
-          ref="coverDetailInputRef"
-          type="file"
-          class="att-file-input"
-          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-          @change="onPickCoverDetail"
-        />
-        <el-button type="primary" plain :loading="coverDetailUploading" @click="coverDetailInputRef?.click()">
-          上传或替换封面
-        </el-button>
-      </div>
-
-      <div v-if="isVideoAuthor" class="block">
-        <h3>本站视频（磁盘）</h3>
-        <p class="hint">与创作页相同：上传到 API 所在服务器，免阿里云亦可预览/播放（已发布或作者预览）。可多次上传替换。</p>
-        <input
-          ref="localVideoDetailInputRef"
-          type="file"
-          class="att-file-input"
-          accept=".mp4,.mov,.mkv,.webm,video/*"
-          @change="onPickLocalVideoDetail"
-        />
-        <el-button type="primary" plain :loading="localVideoUploading" @click="localVideoDetailInputRef?.click()">
-          上传或替换本站视频
-        </el-button>
-      </div>
-
-      <div v-if="isVideoAuthor" v-loading="attachmentsLoading" class="block">
-        <h3>稿件附件</h3>
-        <p class="hint">图片、PDF、Word 等，与视频一样保存在服务器磁盘；仅作者可见与管理。可多选一次上传多个。</p>
-        <input
-          ref="attachDetailInputRef"
-          type="file"
-          class="att-file-input"
-          multiple
-          @change="onAddAttachmentDetail"
-        />
-        <el-button type="primary" plain :loading="attachmentUploading" @click="attachDetailInputRef?.click()">
-          上传附件
-        </el-button>
+      <div v-if="isVideoAuthor" v-loading="attachmentsLoading" class="block asset-panel">
+        <div class="asset-head">
+          <div>
+            <h3>稿件素材</h3>
+            <p class="hint">封面、本站视频和附件已收进右上角「编辑」菜单；附件仅作者可见与管理。</p>
+          </div>
+          <el-button type="primary" plain :loading="attachmentUploading" @click="attachDetailInputRef?.click()">
+            添加附件
+          </el-button>
+        </div>
         <el-empty v-if="!attachments.length" description="暂无附件" :image-size="72" style="margin-top: 12px" />
         <ul v-else class="att-list">
           <li v-for="a in attachments" :key="a.id" class="att-row">
             <span class="att-name">{{ a.original_filename }}</span>
-            <span class="att-meta">{{ (a.size_bytes / 1024).toFixed(1) }} KB</span>
+            <span class="att-meta">{{ formatFileSize(a.size_bytes) }}</span>
             <el-button type="primary" link @click="downloadAttachment(a)">下载</el-button>
           </li>
         </ul>
       </div>
-
-      <div class="block actions" role="group" aria-label="点赞与收藏">
-        <el-button
-          class="act-btn"
-          :class="{ 'act-btn--guest': !auth.isLoggedIn }"
-          :type="auth.isLoggedIn && my?.liked ? 'primary' : 'default'"
-          :plain="!auth.isLoggedIn"
-          @click="onLikeClick"
-        >
-          <span class="act-btn__label">{{ auth.isLoggedIn && my?.liked ? "已赞" : "点赞" }}</span>
-          <span v-if="likesCount > 0" class="act-btn__count" aria-hidden="true">{{ likesCount }}</span>
-        </el-button>
-        <el-button
-          class="act-btn"
-          :class="{ 'act-btn--guest': !auth.isLoggedIn }"
-          :type="auth.isLoggedIn && my?.favorited ? 'warning' : 'default'"
-          :plain="!auth.isLoggedIn"
-          @click="onFavoriteClick"
-        >
-          <span class="act-btn__label">{{ auth.isLoggedIn && my?.favorited ? "已收藏" : "收藏" }}</span>
-          <span v-if="favCount > 0" class="act-btn__count" aria-hidden="true">{{ favCount }}</span>
-        </el-button>
-      </div>
-
-      <div
-        v-if="video.status === 'published' || (isVideoAuthor && ['draft', 'pending_review', 'rejected', 'offline'].includes(video.status))"
-        class="block"
-      >
-        <h3>播放</h3>
-        <p class="hint h5-desktop-only">
-          登录后点击加载：若视频在本站磁盘，将使用浏览器内置播放器；若仅绑定阿里云点播，则使用阿里云 Web 播放器。
-        </p>
-        <p class="hint hint--m h5-mobile-only">登录后可加载播放（需网络畅通）。</p>
-        <el-button type="primary" :loading="playLoading" @click="startPlayback">加载播放器</el-button>
-        <div v-if="localPlaySrc" class="player-shell player-shell--active" aria-live="polite">
-          <video
-            class="player-box"
-            controls
-            playsinline
-            preload="metadata"
-            crossorigin="anonymous"
-            :src="localPlaySrc"
-            :style="{ width: '100%', height: aliPlayerHeightPx(), background: '#000' }"
-            @timeupdate="onLocalVideoTimeupdate"
-          />
-        </div>
-        <div
-          v-else
-          class="player-shell"
-          :class="{ 'player-shell--active': !!player }"
-          aria-live="polite"
-        >
-          <div id="ali-player-wrap" class="player-box" />
-        </div>
-      </div>
-      <el-alert v-else title="该稿件非发布状态，不提供公开播放。" type="info" :closable="false" show-icon />
 
       <div class="block">
         <h3>评论（{{ commentTotal }}）</h3>
@@ -720,91 +803,222 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-h2 {
-  word-break: break-word;
-  overflow-wrap: anywhere;
+.video-detail-shell {
+  min-height: calc(100dvh - 72px);
+  margin: -20px calc(50% - 50vw) -24px;
+  padding: 24px max(20px, calc(50vw - 560px)) 48px;
+  background:
+    radial-gradient(circle at 12% -8%, rgba(34, 211, 238, 0.18), transparent 30%),
+    radial-gradient(circle at 92% 10%, rgba(139, 92, 246, 0.18), transparent 34%),
+    linear-gradient(180deg, #070b16 0%, #050506 58%, #081018 100%);
+  color: #f8fafc;
 }
-.meta {
-  color: var(--el-text-color-secondary);
-  font-size: 14px;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+
+.video-detail-page {
+  position: relative;
 }
-.author-link {
-  color: var(--native-accent);
-  font-weight: 700;
+
+.detail-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.detail-nav :deep(a) {
+  color: #67e8f9;
+  font-weight: 800;
   text-decoration: none;
 }
+
+.edit-trigger {
+  min-width: 92px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #22d3ee, #a78bfa);
+  color: #05111f;
+  font-weight: 900;
+  box-shadow: 0 16px 36px rgba(34, 211, 238, 0.26);
+}
+
+.detail-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.preview-card,
+.detail-panel,
+.block {
+  border: 1px solid rgba(103, 232, 249, 0.14);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.08), transparent 42%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.86), rgba(2, 6, 23, 0.9));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.preview-card {
+  overflow: hidden;
+  border-radius: 30px;
+  min-width: 0;
+}
+
+.detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-radius: 30px;
+  padding: 22px;
+}
+
+.status-row,
+.meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(103, 232, 249, 0.28);
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.12);
+  color: #67e8f9;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.detail-panel h1 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: clamp(28px, 5vw, 52px);
+  line-height: 1.02;
+  font-weight: 950;
+  letter-spacing: -0.07em;
+  word-break: break-word;
+}
+
+.author-link,
+.link {
+  color: #67e8f9;
+  font-weight: 800;
+  text-decoration: none;
+}
+
 .desc {
+  margin: 0;
+  color: #cbd5e1;
   white-space: pre-wrap;
-  line-height: 1.6;
+  line-height: 1.65;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.workflow-alert {
-  margin-top: 16px;
+
+.desc--muted,
+.hint,
+.play-expire {
+  color: #94a3b8;
 }
-.block {
-  margin-top: 24px;
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 4px;
 }
+
+.stat-grid span {
+  min-width: 0;
+  padding: 12px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.stat-grid b,
+.stat-grid small {
+  display: block;
+}
+
+.stat-grid b {
+  color: #f8fafc;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 20px;
+}
+
+.stat-grid small {
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
-@media (max-width: 767px) {
-  .actions {
-    gap: 12px;
-  }
-  .actions .act-btn {
-    flex: 1 1 calc(50% - 6px);
-    min-width: 0;
-  }
+
+.hero-actions .act-btn {
+  flex: 1 1 0;
 }
+
 .act-btn {
-  min-height: 48px;
-  padding: 0 22px;
+  min-height: 46px;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-weight: 800;
 }
+
 .act-btn__label {
-  font-weight: 600;
+  font-weight: 800;
 }
+
 .act-btn__count {
   margin-left: 6px;
   font-size: 13px;
-  font-weight: 500;
   opacity: 0.85;
 }
+
 .act-btn--guest {
   border-width: 1.5px;
 }
+
 .act-btn--block {
   width: 100%;
   margin-top: 4px;
 }
-/* 未实例化播放器前预留 16:9，降低 CLS；实例化后由 SDK 接管高度 */
+
 .player-shell {
-  margin-top: 12px;
+  position: relative;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  border-radius: 10px;
   overflow: hidden;
   contain: layout style;
+  background: linear-gradient(160deg, #111827 0%, #020617 100%);
 }
-.player-shell:not(.player-shell--active) {
+
+.hero-player {
+  min-height: min(68dvh, 620px);
   aspect-ratio: 16 / 9;
-  min-height: 200px;
-  max-height: min(72vh, 800px);
-  background: linear-gradient(160deg, #1a1d22 0%, #0a0b0d 100%);
-  border: 1px solid var(--el-border-color-lighter);
 }
+
 .player-shell--active {
   aspect-ratio: auto;
   min-height: 0;
-  max-height: none;
-  background: transparent;
-  border-color: transparent;
+  background: #000;
 }
+
 .player-box {
   margin-top: 0;
   min-height: 0;
@@ -812,40 +1026,92 @@ h2 {
   width: 100%;
   box-sizing: border-box;
 }
-.hint {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-}
-.hint--m {
-  margin-bottom: 10px;
-}
-.comment-m__body {
-  font-size: 14px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.comment-m__uid {
-  max-width: 100%;
+
+.preview-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   overflow: hidden;
-  text-overflow: ellipsis;
-}
-.comment-m__act {
-  margin-top: 8px;
-}
-.comment-desktop-wrap {
-  margin-top: 12px;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(34, 211, 238, 0.16), transparent 44%),
+    #020617;
 }
 
-@media (max-width: 767px) {
-  h2 {
-    font-size: 20px;
-    line-height: 1.35;
-  }
+.preview-placeholder img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.68;
+  filter: saturate(1.08) contrast(1.08);
 }
-.link {
-  color: var(--el-color-primary);
-  text-decoration: none;
+
+.preview-placeholder::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(2, 6, 23, 0.16), rgba(2, 6, 23, 0.82)),
+    radial-gradient(circle at 50% 54%, rgba(34, 211, 238, 0.22), transparent 32%);
+}
+
+.cover-fallback {
+  position: relative;
+  z-index: 1;
+  color: rgba(248, 250, 252, 0.08);
+  font-size: clamp(92px, 18vw, 180px);
+  font-weight: 950;
+  letter-spacing: -0.12em;
+}
+
+.preview-overlay {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.preview-overlay b {
+  color: #f8fafc;
+  font-size: clamp(24px, 4vw, 42px);
+  font-weight: 950;
+  letter-spacing: -0.06em;
+}
+
+.preview-overlay small {
+  color: #cbd5e1;
+}
+
+.workflow-alert {
+  margin-top: 16px;
+}
+
+.block {
+  margin-top: 18px;
+  border-radius: 24px;
+  padding: 18px;
+}
+
+.block h3 {
+  margin: 0 0 10px;
+  color: #f8fafc;
+}
+
+.hint {
+  margin: 0;
+  font-size: 13px;
+}
+
+.asset-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
 }
 
 .att-file-input {
@@ -857,7 +1123,7 @@ h2 {
 }
 
 .att-list {
-  margin: 12px 0 0;
+  margin: 14px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -867,18 +1133,134 @@ h2 {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .att-name {
   flex: 1 1 160px;
   min-width: 0;
+  color: #e2e8f0;
   word-break: break-word;
 }
 
 .att-meta {
+  color: #94a3b8;
   font-size: 13px;
-  color: var(--el-text-color-secondary);
+}
+
+.comment-desktop-wrap {
+  margin-top: 12px;
+}
+
+.comment-m__body {
+  color: #e2e8f0;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.comment-m__uid {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.comment-m__act {
+  margin-top: 8px;
+}
+
+.video-detail-shell :deep(.el-textarea__inner),
+.video-detail-shell :deep(.el-input__wrapper) {
+  border-color: rgba(103, 232, 249, 0.16);
+  background: rgba(15, 23, 42, 0.76);
+  color: #f8fafc;
+  box-shadow: none;
+}
+
+.video-detail-shell :deep(.el-table),
+.video-detail-shell :deep(.el-table tr),
+.video-detail-shell :deep(.el-table th.el-table__cell),
+.video-detail-shell :deep(.el-table td.el-table__cell) {
+  background: transparent;
+  color: #e2e8f0;
+}
+
+.video-detail-shell :deep(.el-table) {
+  --el-table-border-color: rgba(255, 255, 255, 0.08);
+  --el-table-header-bg-color: rgba(15, 23, 42, 0.86);
+  --el-table-row-hover-bg-color: rgba(34, 211, 238, 0.08);
+}
+
+.video-detail-shell :deep(.el-loading-mask) {
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+:global(.video-edit-menu) {
+  border: 1px solid rgba(103, 232, 249, 0.16) !important;
+  background: rgba(2, 6, 23, 0.96) !important;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.42) !important;
+}
+
+:global(.video-edit-menu .el-dropdown-menu) {
+  background: transparent;
+}
+
+:global(.video-edit-menu .el-dropdown-menu__item) {
+  color: #e2e8f0;
+}
+
+:global(.video-edit-menu .el-dropdown-menu__item:not(.is-disabled):focus),
+:global(.video-edit-menu .el-dropdown-menu__item:not(.is-disabled):hover) {
+  background: rgba(34, 211, 238, 0.12);
+  color: #67e8f9;
+}
+
+@media (max-width: 900px) {
+  .video-detail-shell {
+    margin: 0 -10px -10px;
+    padding: 14px 10px 28px;
+  }
+
+  .detail-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-panel,
+  .preview-card,
+  .block {
+    border-radius: 22px;
+  }
+
+  .hero-player {
+    min-height: 220px;
+  }
+}
+
+@media (max-width: 560px) {
+  .detail-nav {
+    align-items: flex-start;
+  }
+
+  .detail-panel {
+    padding: 16px;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .actions .act-btn {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+  }
+
+  .asset-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

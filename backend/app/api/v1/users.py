@@ -9,6 +9,9 @@ from app.api.deps import DbSession
 from app.api.v1.http_cache_control import MUTABLE_GET_CACHE_CONTROL, set_mutation_cache_control
 from app.schemas.algorithm_reset import (
     AiAgentPanelOut,
+    AlgorithmPresetCreate,
+    AlgorithmPresetListResponse,
+    AlgorithmPresetResponse,
     AlgorithmResetResponse,
     AlgorithmStateResponse,
     AlgorithmStateUpdate,
@@ -146,6 +149,49 @@ def update_my_algorithm_state(
     current_user: CurrentUser,
 ) -> AlgorithmStateResponse:
     return algorithm_reset_service.update_algorithm_state(db, user=current_user, payload=payload)
+
+
+@router.get("/me/algorithm-presets", response_model=AlgorithmPresetListResponse, summary="我的算法世界模型模板")
+def list_my_algorithm_presets(db: DbSession, current_user: CurrentUser) -> AlgorithmPresetListResponse:
+    return algorithm_reset_service.list_algorithm_presets(db, user=current_user)
+
+
+@router.post(
+    "/me/algorithm-presets",
+    response_model=AlgorithmPresetResponse,
+    summary="保存算法世界模型模板",
+    dependencies=[Depends(set_mutation_cache_control)],
+)
+def save_my_algorithm_preset(
+    payload: AlgorithmPresetCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> AlgorithmPresetResponse:
+    return algorithm_reset_service.save_algorithm_preset(db, user=current_user, payload=payload)
+
+
+@router.post(
+    "/me/algorithm-presets/{preset_id}/apply",
+    response_model=AlgorithmStateResponse,
+    summary="应用算法世界模型模板",
+    dependencies=[Depends(set_mutation_cache_control)],
+)
+def apply_my_algorithm_preset(
+    preset_id: UUID,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> AlgorithmStateResponse:
+    return algorithm_reset_service.apply_algorithm_preset(db, user=current_user, preset_id=preset_id)
+
+
+@router.post(
+    "/me/algorithm-state/reset-custom-defaults",
+    response_model=AlgorithmStateResponse,
+    summary="恢复自定义算法默认参数",
+    dependencies=[Depends(set_mutation_cache_control)],
+)
+def reset_my_custom_algorithm_defaults(db: DbSession, current_user: CurrentUser) -> AlgorithmStateResponse:
+    return algorithm_reset_service.reset_custom_parameters_to_default(db, user=current_user)
 
 
 @router.get("/me/attention-index", response_model=AttentionIndexResponse, summary="我的关注指数")

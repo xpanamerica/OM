@@ -5,7 +5,7 @@ from app.models.comment import Comment
 from app.models.concept import Concept, VideoConcept
 from app.models.direct_message import DirectConversation, DirectMessage, DirectMessageAttachment
 from app.models.ai_job import AiJob
-from app.models.algorithm_reset import AlgorithmResetLog, AttentionValueSnapshot, UserAlgorithmState
+from app.models.algorithm_reset import AlgorithmResetLog, AttentionValueSnapshot, UserAlgorithmPreset, UserAlgorithmState
 from app.models.app_setting import AppSetting
 from app.models.enums import AiJobStatus, AiJobType, UserRole, VideoStatus
 from app.models.learning_path import LearningPath, LearningPathItem
@@ -30,6 +30,7 @@ __all__ = [
     "AiJobType",
     "AlgorithmResetLog",
     "AttentionValueSnapshot",
+    "UserAlgorithmPreset",
     "AppSetting",
     "Category",
     "Comment",

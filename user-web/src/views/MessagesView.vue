@@ -198,7 +198,7 @@ onMounted(() => void load());
           <i v-if="card.count > 0" class="quick-badge">{{ card.count > 99 ? "99+" : card.count }}</i>
         </span>
         <b>{{ card.title }}</b>
-        <small>{{ activeFilter === card.key ? "正在查看" : "点击查看" }}</small>
+        <small v-if="activeFilter === card.key">正在查看</small>
       </button>
     </section>
 

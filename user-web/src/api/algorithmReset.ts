@@ -43,6 +43,39 @@ export async function updateAlgorithmState(body: {
   return data;
 }
 
+export type AlgorithmPreset = {
+  id: string;
+  name: string;
+  description: string | null;
+  parameters: AlgorithmParameters;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function listAlgorithmPresets(): Promise<{ success: boolean; items: AlgorithmPreset[] }> {
+  const { data } = await http.get("/users/me/algorithm-presets");
+  return data;
+}
+
+export async function saveAlgorithmPreset(body: {
+  name: string;
+  description?: string | null;
+  parameters?: AlgorithmParameters;
+}): Promise<{ success: boolean; message: string; data: AlgorithmPreset }> {
+  const { data } = await http.post("/users/me/algorithm-presets", body);
+  return data;
+}
+
+export async function applyAlgorithmPreset(id: string): Promise<AlgorithmResetResponse> {
+  const { data } = await http.post<AlgorithmResetResponse>(`/users/me/algorithm-presets/${id}/apply`);
+  return data;
+}
+
+export async function resetCustomDefaults(): Promise<AlgorithmResetResponse> {
+  const { data } = await http.post<AlgorithmResetResponse>("/users/me/algorithm-state/reset-custom-defaults");
+  return data;
+}
+
 export async function getAttentionIndex(): Promise<{
   success: boolean;
   data: {
@@ -50,6 +83,12 @@ export async function getAttentionIndex(): Promise<{
     inputQuality: number;
     outputValue: number;
     cognitiveGrowth: number;
+    timeQuality: number;
+    informationValue: number;
+    propagationImpact: number;
+    deepEngagement: number;
+    formula: string;
+    detail: Record<string, unknown> | null;
     latestMode: string | null;
     explanation: string;
   };
@@ -58,7 +97,20 @@ export async function getAttentionIndex(): Promise<{
   return data;
 }
 
-export async function getAiAgentPanel(): Promise<{ summary: string; suggestions: string[]; nextActions: string[] }> {
+export type AiAgentPanel = {
+  mode: string;
+  modelVersion: string;
+  summary: string;
+  contentSummary: string;
+  attentionOptimization: string;
+  learningPathSuggestion: string;
+  alerts: string[];
+  attentionFactors: Record<string, number>;
+  suggestions: string[];
+  nextActions: string[];
+};
+
+export async function getAiAgentPanel(): Promise<AiAgentPanel> {
   const { data } = await http.get("/users/me/ai-agent-panel");
   return data;
 }

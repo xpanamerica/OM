@@ -33,6 +33,16 @@ body,
   height: 100%;
   margin: 0;
 }
+
+@media (max-width: 767px) {
+  html,
+  body,
+  #app,
+  .main-content-root {
+    background: #050506;
+  }
+}
+
 /* H5：避免长词、表格残留或子元素 margin 导致整页横向拖动 */
 #app {
   width: 100%;

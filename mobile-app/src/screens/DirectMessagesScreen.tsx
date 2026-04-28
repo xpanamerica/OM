@@ -206,7 +206,7 @@ export function DirectMessagesScreen({ navigation, route }: Props) {
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </Pressable>
         <View style={styles.chatAvatar}>
-          {activePeer?.avatarUrl ? <Image source={{ uri: attachmentUrl(activePeer.avatarUrl) }} style={styles.avatarImg} /> : <Text style={styles.avatarTxt}>{activePeer?.username.slice(0, 1).toUpperCase() || "聊"}</Text>}
+          {activePeer?.avatarUrl ? <Image source={{ uri: attachmentUrl(activePeer.avatarUrl) }} style={styles.avatarImg} /> : <Text style={styles.avatarTxt}>{activePeer?.username?.slice(0, 1).toUpperCase() || "聊"}</Text>}
         </View>
         <View style={styles.chatTitleBox}>
           <Text style={styles.chatTitle} numberOfLines={1}>{activePeer?.username || "新的对话"}</Text>

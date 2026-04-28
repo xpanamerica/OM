@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+import uuid
 
 from pydantic import BaseModel, Field
 
 AlgorithmMode = str
+ATTENTION_VALUE_FORMULA = "Attention Value = 时间质量 × 信息价值 × 传播影响 × 深度参与"
 
 
 class AlgorithmParameters(BaseModel):
@@ -50,11 +52,43 @@ class AlgorithmStateResponse(BaseModel):
     data: AlgorithmStateOut
 
 
+class AlgorithmPresetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=240)
+    parameters: AlgorithmParameters | None = None
+
+
+class AlgorithmPresetOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str | None = None
+    parameters: AlgorithmParameters
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class AlgorithmPresetListResponse(BaseModel):
+    success: bool
+    items: list[AlgorithmPresetOut]
+
+
+class AlgorithmPresetResponse(BaseModel):
+    success: bool
+    message: str
+    data: AlgorithmPresetOut
+
+
 class AttentionIndexOut(BaseModel):
     attentionIndex: int
     inputQuality: int
     outputValue: int
     cognitiveGrowth: int
+    timeQuality: int = 0
+    informationValue: int = 0
+    propagationImpact: int = 0
+    deepEngagement: int = 0
+    formula: str = ATTENTION_VALUE_FORMULA
+    detail: dict | None = None
     latestMode: str | None = None
     explanation: str
 
@@ -65,7 +99,14 @@ class AttentionIndexResponse(BaseModel):
 
 
 class AiAgentPanelOut(BaseModel):
+    mode: str
+    modelVersion: str = "agent-v1-rule-based"
     summary: str
+    contentSummary: str
+    attentionOptimization: str
+    learningPathSuggestion: str
+    alerts: list[str] = Field(default_factory=list)
+    attentionFactors: dict[str, int] = Field(default_factory=dict)
     suggestions: list[str]
     nextActions: list[str]
 

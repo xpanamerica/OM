@@ -217,6 +217,10 @@ async function logout() {
   .main-layout--native .main {
     padding: 0 10px 10px;
   }
+  .root,
+  .main {
+    background: #050506;
+  }
   .main.main--tabbar {
     padding-bottom: calc(var(--h5-tabbar-height) + env(safe-area-inset-bottom, 0px) + 12px);
   }

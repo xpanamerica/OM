@@ -37,6 +37,7 @@ export function DiscoverScreen(_props: Props) {
   const [kw, setKw] = useState("");
   const [modePanelOpen, setModePanelOpen] = useState(false);
   const [algorithmState, setAlgorithmState] = useState<algorithmApi.AlgorithmState | null>(null);
+  const [presets, setPresets] = useState<algorithmApi.AlgorithmPreset[]>([]);
   const [customParams, setCustomParams] = useState<algorithmApi.AlgorithmParameters>({
     randomness: 50,
     diversity: 70,
@@ -111,10 +112,22 @@ export function DiscoverScreen(_props: Props) {
     queryFn: () => algorithmApi.getGovernancePower(token!),
     enabled: Boolean(token && modePanelOpen),
   });
+  const presetsQuery = useQuery({
+    queryKey: ["algorithm-presets", token, modePanelOpen],
+    queryFn: () => algorithmApi.listAlgorithmPresets(token!),
+    enabled: Boolean(token && modePanelOpen),
+  });
 
   React.useEffect(() => {
-    if (algorithmQuery.data?.data) setAlgorithmState(algorithmQuery.data.data);
+    if (algorithmQuery.data?.data) {
+      setAlgorithmState(algorithmQuery.data.data);
+      setCustomParams(algorithmQuery.data.data.parameters);
+    }
   }, [algorithmQuery.data]);
+
+  React.useEffect(() => {
+    if (presetsQuery.data?.items) setPresets(presetsQuery.data.items);
+  }, [presetsQuery.data]);
 
   async function chooseMode(mode: algorithmApi.AlgorithmMode) {
     if (!token) return;
@@ -123,10 +136,37 @@ export function DiscoverScreen(_props: Props) {
       parameters: mode === "custom" ? customParams : undefined,
     });
     setAlgorithmState(result.data);
+    setCustomParams(result.data.parameters);
     setModePanelOpen(false);
   }
 
+  async function savePreset() {
+    if (!token) return;
+    await algorithmApi.saveAlgorithmPreset(token, {
+      name: `世界模型 ${new Date().toLocaleDateString("zh-CN")}`,
+      description: "从 App 当前参数保存",
+      parameters: customParams,
+    });
+    const result = await algorithmApi.listAlgorithmPresets(token);
+    setPresets(result.items);
+  }
+
+  async function applyPreset(id: string) {
+    if (!token) return;
+    const result = await algorithmApi.applyAlgorithmPreset(token, id);
+    setAlgorithmState(result.data);
+    setCustomParams(result.data.parameters);
+  }
+
+  async function resetDefaults() {
+    if (!token) return;
+    const result = await algorithmApi.resetCustomDefaults(token);
+    setAlgorithmState(result.data);
+    setCustomParams(result.data.parameters);
+  }
+
   const activeModeTitle = modeOptions.find((item) => item.key === algorithmState?.mode)?.title ?? "算法模式";
+  const worldModelSummary = `随机 ${customParams.randomness} / 多样 ${customParams.diversity} / 深度 ${customParams.depth} / 娱乐 ${customParams.entertainment} / 挑战 ${customParams.challenge} / 新颖 ${customParams.novelty}`;
 
   const renderVideoRow = useCallback(
     ({ item }: { item: VideoListItem }) => (
@@ -233,11 +273,42 @@ export function DiscoverScreen(_props: Props) {
                 <Text style={styles.insightNum}>{governanceQuery.data?.votingPower ?? "—"}</Text>
                 <Text style={styles.insightLabel}>治理投票权重</Text>
               </View>
+              <View style={styles.insightBox}>
+                <Text style={styles.insightNum}>{attentionQuery.data?.data.timeQuality ?? "—"}</Text>
+                <Text style={styles.insightLabel}>时间质量</Text>
+              </View>
+              <View style={styles.insightBox}>
+                <Text style={styles.insightNum}>{attentionQuery.data?.data.informationValue ?? "—"}</Text>
+                <Text style={styles.insightLabel}>信息价值</Text>
+              </View>
+              <View style={styles.insightBox}>
+                <Text style={styles.insightNum}>{attentionQuery.data?.data.propagationImpact ?? "—"}</Text>
+                <Text style={styles.insightLabel}>传播影响</Text>
+              </View>
+              <View style={styles.insightBox}>
+                <Text style={styles.insightNum}>{attentionQuery.data?.data.deepEngagement ?? "—"}</Text>
+                <Text style={styles.insightLabel}>深度参与</Text>
+              </View>
+              <Text style={styles.agentText}>
+                {attentionQuery.data?.data.explanation ?? "Attention Value = 时间质量 × 信息价值 × 传播影响 × 深度参与。"}
+              </Text>
               <Text style={styles.agentText}>
                 {aiAgentQuery.data?.summary ?? "AI Agent 将生成总结、注意力优化和学习路径建议。"}
               </Text>
+              <View style={styles.agentPanel}>
+                <Text style={styles.agentTitle}>AI Agent v1</Text>
+                <Text style={styles.agentText}>{aiAgentQuery.data?.contentSummary ?? "等待真实浏览样本后生成内容摘要。"}</Text>
+                <Text style={styles.agentText}>注意力优化：{aiAgentQuery.data?.attentionOptimization ?? "暂无优化建议。"}</Text>
+                <Text style={styles.agentText}>学习路径：{aiAgentQuery.data?.learningPathSuggestion ?? "先选择算法模式并浏览内容。"}</Text>
+                {(aiAgentQuery.data?.alerts ?? []).map((alert) => (
+                  <Text key={alert} style={styles.agentAlert}>
+                    {alert}
+                  </Text>
+                ))}
+              </View>
             </View>
             <Text style={styles.modeCustomTitle}>自定义参数</Text>
+            <Text style={styles.worldModel}>{worldModelSummary}</Text>
             {([
               ["randomness", "随机性"],
               ["diversity", "多样性"],
@@ -256,6 +327,22 @@ export function DiscoverScreen(_props: Props) {
             <Pressable style={styles.customApply} onPress={() => void chooseMode("custom")}>
               <Text style={styles.customApplyText}>应用自定义模式</Text>
             </Pressable>
+            <View style={styles.customActions}>
+              <Pressable style={styles.customSecondary} onPress={() => void savePreset()}>
+                <Text style={styles.customSecondaryText}>保存模板</Text>
+              </Pressable>
+              <Pressable style={styles.customSecondary} onPress={() => void resetDefaults()}>
+                <Text style={styles.customSecondaryText}>恢复默认</Text>
+              </Pressable>
+            </View>
+            {presets.map((preset) => (
+              <Pressable key={preset.id} style={styles.presetCard} onPress={() => void applyPreset(preset.id)}>
+                <Text style={styles.presetTitle}>{preset.name}</Text>
+                <Text style={styles.presetDesc}>
+                  深度 {preset.parameters.depth} · 挑战 {preset.parameters.challenge} · 新颖 {preset.parameters.novelty}
+                </Text>
+              </Pressable>
+            ))}
           </View>
         </View>
       </Modal>
@@ -447,7 +534,40 @@ const styles = StyleSheet.create({
   insightNum: { color: "#e0f2fe", fontSize: 18, fontWeight: "900" },
   insightLabel: { color: "#93c5fd", fontSize: 11, fontWeight: "800", marginTop: 2 },
   agentText: { width: "100%", color: "#93c5fd", fontSize: 11, lineHeight: 16, fontWeight: "700" },
+  agentPanel: {
+    width: "100%",
+    gap: 6,
+    marginTop: 4,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(196,181,253,0.28)",
+    backgroundColor: "rgba(49,46,129,0.28)",
+  },
+  agentTitle: { color: "#e9d5ff", fontSize: 13, fontWeight: "900" },
+  agentAlert: {
+    color: "#fde68a",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "800",
+    padding: 7,
+    borderRadius: 10,
+    backgroundColor: "rgba(120,53,15,0.28)",
+  },
   modeCustomTitle: { color: colors.text, fontSize: 15, fontWeight: "900", marginTop: 6, marginBottom: 8 },
+  worldModel: {
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(125,211,252,0.22)",
+    backgroundColor: "rgba(8,47,73,0.3)",
+    color: "#bae6fd",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
   paramRow: { paddingVertical: 8 },
   paramTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   paramText: { color: "#cbd5e1", fontSize: 12, fontWeight: "800" },
@@ -476,4 +596,26 @@ const styles = StyleSheet.create({
   },
   customApply: { marginTop: 8, minHeight: 42, borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent },
   customApplyText: { color: "#042f2e", fontSize: 14, fontWeight: "900" },
+  customActions: { flexDirection: "row", gap: 8, marginTop: 8 },
+  customSecondary: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(125,211,252,0.26)",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(15,23,42,0.72)",
+  },
+  customSecondaryText: { color: "#bae6fd", fontSize: 12, fontWeight: "900" },
+  presetCard: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(148,163,184,0.18)",
+    backgroundColor: "rgba(2,6,23,0.45)",
+  },
+  presetTitle: { color: "#e0f2fe", fontSize: 13, fontWeight: "900" },
+  presetDesc: { color: "#93c5fd", fontSize: 11, fontWeight: "700", marginTop: 3 },
 });

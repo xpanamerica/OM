@@ -152,7 +152,7 @@ def list_my_favorite_videos(
     rows = video_favorite_repository.list_published_favorite_videos_by_user(
         db, user_id=actor.id, offset=offset, limit=limit
     )
-    items = [video_privacy.video_list_item_for_viewer(v, actor) for v in rows]
+    items = [video_privacy.video_list_item_for_viewer(v, actor, db) for v in rows]
     return items, total
 
 

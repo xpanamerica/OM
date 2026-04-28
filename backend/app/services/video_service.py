@@ -4,7 +4,9 @@ import sqlite3
 import uuid
 import hashlib
 import random
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import TypeAlias
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -59,6 +61,16 @@ from app.repositories import (
 from app.schemas.video import VideoBindVodRequest, VideoCreate, VideoRejectRequest, VideoUpdate
 from app.services import algorithm_reset_service, app_settings_service
 from app.services.video_list import run_video_list
+
+
+@dataclass(frozen=True)
+class AlgorithmFactor:
+    label: str
+    value: float
+    weight: float
+
+
+RecommendationReason: TypeAlias = tuple[dict[str, int], str]
 
 
 def _dedupe_ids(ids: list[uuid.UUID]) -> list[uuid.UUID]:
@@ -190,6 +202,143 @@ def _origin_freshness_score(video: Video, *, now: datetime) -> float:
     return max(0.0, 1.0 - min(age_days, 30.0) / 30.0)
 
 
+def _stable_random_factor(*, seed: str, mode: str, page: int, video_id: uuid.UUID) -> float:
+    digest = hashlib.sha256(f"{seed}:mode:{mode}:page:{page}:{video_id}".encode("utf-8")).hexdigest()
+    return random.Random(int(digest[:16], 16)).random()
+
+
+def _video_algorithm_signals(
+    video: Video,
+    *,
+    max_quality: int,
+    now: datetime,
+    seed: str,
+    mode: str,
+    page: int,
+) -> dict[str, float]:
+    random_factor = _stable_random_factor(seed=seed, mode=mode, page=page, video_id=video.id)
+    quality = _normalized_engagement(video, max_quality=max_quality)
+    freshness = _origin_freshness_score(video, now=now)
+    depth = min(((video.duration_seconds or 0) / 900.0) + (0.2 if video.description else 0.0), 1.0)
+    entertainment = min((video.likes_count + video.favorites_count * 2) / max(video.views_count + 1, 1), 1.0)
+    novelty = max(0.0, min(1.0, 1.0 - freshness * 0.35 + random_factor * 0.65))
+    challenge = max(0.0, min(1.0, depth * 0.7 + novelty * 0.3))
+    diversity = 0.7 + (0.3 if video.category_id is not None else 0.0)
+    return {
+        "random": random_factor,
+        "quality": quality,
+        "freshness": freshness,
+        "depth": depth,
+        "entertainment": entertainment,
+        "novelty": novelty,
+        "challenge": challenge,
+        "diversity": diversity,
+    }
+
+
+def _normalized_custom_parameters(parameters: dict) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for key, fallback in {
+        "randomness": 50,
+        "diversity": 70,
+        "depth": 50,
+        "entertainment": 50,
+        "challenge": 50,
+        "novelty": 60,
+    }.items():
+        raw = parameters.get(key, fallback)
+        try:
+            out[key] = max(0, min(int(raw), 100)) / 100
+        except (TypeError, ValueError):
+            out[key] = fallback / 100
+    return out
+
+
+def _algorithm_factors_for_video(
+    video: Video,
+    *,
+    mode: str,
+    parameters: dict,
+    seed: str,
+    page: int,
+    max_quality: int,
+    now: datetime,
+) -> list[AlgorithmFactor]:
+    s = _video_algorithm_signals(video, max_quality=max_quality, now=now, seed=seed, mode=mode, page=page)
+    if mode == "origin":
+        return [
+            AlgorithmFactor("随机探索", s["random"], 0.5),
+            AlgorithmFactor("内容质量", s["quality"], 0.3),
+            AlgorithmFactor("时间新鲜度", s["freshness"], 0.2),
+        ]
+    if mode == "efficiency":
+        return [
+            AlgorithmFactor("信息密度", s["quality"], 0.34),
+            AlgorithmFactor("学习价值", s["depth"], 0.28),
+            AlgorithmFactor("目标匹配", (s["quality"] + s["freshness"]) / 2, 0.22),
+            AlgorithmFactor("随机校准", s["random"], 0.08),
+            AlgorithmFactor("多样补偿", s["diversity"], 0.08),
+        ]
+    if mode == "growth":
+        return [
+            AlgorithmFactor("认知挑战", s["challenge"], 0.34),
+            AlgorithmFactor("内容深度", s["depth"], 0.24),
+            AlgorithmFactor("新颖性", s["novelty"], 0.22),
+            AlgorithmFactor("跨域多样", s["diversity"], 0.12),
+            AlgorithmFactor("质量评分", s["quality"], 0.08),
+        ]
+    if mode == "emotion":
+        return [
+            AlgorithmFactor("娱乐沉浸", s["entertainment"], 0.4),
+            AlgorithmFactor("时间新鲜度", s["freshness"], 0.18),
+            AlgorithmFactor("随机探索", s["random"], 0.24),
+            AlgorithmFactor("质量评分", s["quality"], 0.1),
+            AlgorithmFactor("多样缓冲", s["diversity"], 0.08),
+        ]
+    if mode == "custom":
+        p = _normalized_custom_parameters(parameters)
+        return [
+            AlgorithmFactor("随机性", s["random"], p["randomness"] * 0.18),
+            AlgorithmFactor("多样性", s["diversity"], p["diversity"] * 0.16),
+            AlgorithmFactor("深度", s["depth"], p["depth"] * 0.18),
+            AlgorithmFactor("娱乐性", s["entertainment"], p["entertainment"] * 0.14),
+            AlgorithmFactor("认知挑战", s["challenge"], p["challenge"] * 0.18),
+            AlgorithmFactor("新颖性", s["novelty"], p["novelty"] * 0.16),
+            AlgorithmFactor("质量底座", s["quality"], 0.08),
+        ]
+    return [
+        AlgorithmFactor("综合质量", s["quality"], 0.5),
+        AlgorithmFactor("时间新鲜度", s["freshness"], 0.3),
+        AlgorithmFactor("基础探索", s["random"], 0.2),
+    ]
+
+
+def _score_from_factors(factors: list[AlgorithmFactor]) -> float:
+    return sum(max(0.0, factor.value) * max(0.0, factor.weight) for factor in factors)
+
+
+def _reason_from_factors(factors: list[AlgorithmFactor]) -> RecommendationReason:
+    contributions = [(factor.label, max(0.0, factor.value) * max(0.0, factor.weight)) for factor in factors]
+    total = sum(value for _, value in contributions)
+    if total <= 0:
+        reason = {factors[0].label if factors else "基础探索": 100}
+    else:
+        raw = [(label, value / total * 100) for label, value in contributions if value > 0]
+        rounded = [(label, int(value)) for label, value in raw]
+        remainder = 100 - sum(value for _, value in rounded)
+        fractions = sorted(
+            ((idx, raw[idx][1] - rounded[idx][1]) for idx in range(len(raw))),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        values = [value for _, value in rounded]
+        for idx, _ in fractions[: max(0, remainder)]:
+            values[idx] += 1
+        reason = {raw[idx][0]: values[idx] for idx in range(len(raw)) if values[idx] > 0}
+    text = "为什么推荐你：" + "，".join(f"{key} {value}%" for key, value in reason.items())
+    return reason, text
+
+
 def _origin_feed_order(videos: list[Video], *, seed: str, page: int, offset: int, limit: int) -> list[Video]:
     if not videos:
         return []
@@ -200,12 +349,16 @@ def _origin_feed_order(videos: list[Video], *, seed: str, page: int, offset: int
     now = datetime.now(timezone.utc)
     scored: list[tuple[float, Video]] = []
     for video in videos:
-        digest = hashlib.sha256(f"{seed}:page:{page}:{video.id}".encode("utf-8")).hexdigest()
-        random_factor = random.Random(int(digest[:16], 16)).random()
-        quality_score = (video.views_count + video.likes_count * 4 + video.favorites_count * 6) / max_quality
-        freshness_score = _origin_freshness_score(video, now=now)
-        score = random_factor * 0.5 + quality_score * 0.3 + freshness_score * 0.2
-        scored.append((score, video))
+        factors = _algorithm_factors_for_video(
+            video,
+            mode="origin",
+            parameters={},
+            seed=seed,
+            page=page,
+            max_quality=max_quality,
+            now=now,
+        )
+        scored.append((_score_from_factors(factors), video))
     remaining = sorted(scored, key=lambda item: item[0], reverse=True)
     ordered: list[Video] = []
     last_author: uuid.UUID | None = None
@@ -245,33 +398,46 @@ def _algorithm_feed_order(
     now = datetime.now(timezone.utc)
     scored: list[tuple[float, Video]] = []
     for video in videos:
-        digest = hashlib.sha256(f"{seed}:mode:{mode}:page:{page}:{video.id}".encode("utf-8")).hexdigest()
-        random_factor = random.Random(int(digest[:16], 16)).random()
-        quality = _normalized_engagement(video, max_quality=max_quality)
-        freshness = _origin_freshness_score(video, now=now)
-        depth_proxy = min(((video.duration_seconds or 0) / 900.0) + (0.2 if video.description else 0.0), 1.0)
-        entertainment_proxy = min((video.likes_count + video.favorites_count * 2) / max(video.views_count + 1, 1), 1.0)
-        novelty = 1.0 - freshness * 0.35 + random_factor * 0.65
-        challenge = depth_proxy * 0.7 + novelty * 0.3
-
-        if mode == "efficiency":
-            score = quality * 0.42 + depth_proxy * 0.28 + freshness * 0.2 + random_factor * 0.1
-        elif mode == "growth":
-            score = challenge * 0.38 + depth_proxy * 0.26 + novelty * 0.2 + quality * 0.16
-        elif mode == "emotion":
-            score = entertainment_proxy * 0.42 + freshness * 0.2 + random_factor * 0.25 + quality * 0.13
-        else:
-            p = {k: max(0, min(int(v), 100)) / 100 for k, v in parameters.items()}
-            score = (
-                random_factor * p.get("randomness", 0.5) * 0.2
-                + novelty * p.get("novelty", 0.6) * 0.18
-                + depth_proxy * p.get("depth", 0.5) * 0.18
-                + entertainment_proxy * p.get("entertainment", 0.5) * 0.14
-                + challenge * p.get("challenge", 0.5) * 0.18
-                + quality * 0.12
-            )
-        scored.append((score, video))
+        factors = _algorithm_factors_for_video(
+            video,
+            mode=mode,
+            parameters=parameters,
+            seed=seed,
+            page=page,
+            max_quality=max_quality,
+            now=now,
+        )
+        scored.append((_score_from_factors(factors), video))
     return [video for _, video in sorted(scored, key=lambda item: item[0], reverse=True)][offset : offset + limit]
+
+
+def _recommendation_reasons_for_items(
+    items: list[Video],
+    *,
+    mode: str,
+    parameters: dict,
+    seed: str,
+    page: int,
+    pool: list[Video] | None = None,
+) -> dict[uuid.UUID, RecommendationReason]:
+    if not items:
+        return {}
+    score_pool = pool or items
+    max_quality = max((v.views_count + v.likes_count * 4 + v.favorites_count * 6 for v in score_pool), default=1) or 1
+    now = datetime.now(timezone.utc)
+    reasons: dict[uuid.UUID, RecommendationReason] = {}
+    for video in items:
+        factors = _algorithm_factors_for_video(
+            video,
+            mode=mode,
+            parameters=parameters,
+            seed=seed,
+            page=page,
+            max_quality=max_quality,
+            now=now,
+        )
+        reasons[video.id] = _reason_from_factors(factors)
+    return reasons
 
 
 def _origin_feed_pool(
@@ -417,14 +583,22 @@ def list_feed_videos(
     offset: int,
     limit: int,
     page: int,
-) -> tuple[list[Video], int, bool, str, bool, str | None]:
+) -> tuple[list[Video], int, bool, str, bool, str | None, dict[uuid.UUID, RecommendationReason]]:
     if viewer is not None and algorithm_reset_service.is_origin_mode(db, user_id=viewer.id):
         state = algorithm_reset_service.get_algorithm_state(db, user_id=viewer.id) or {}
         seed = str(state.get("explorationSeed") or viewer.id)
         pool = _origin_feed_pool(db, viewer_id=viewer.id, offset=offset, limit=limit)
-        mode = str(state.get("mode") or "origin")
+        mode = "origin"
         params = state.get("parameters") if isinstance(state.get("parameters"), dict) else {}
         items = _algorithm_feed_order(pool, mode=mode, parameters=params, seed=seed, page=page, offset=offset, limit=limit)
+        reasons = _recommendation_reasons_for_items(
+            items,
+            mode=mode,
+            parameters=params,
+            seed=seed,
+            page=page,
+            pool=pool,
+        )
         return (
             items,
             len(pool),
@@ -432,6 +606,7 @@ def list_feed_videos(
             mode,
             False,
             "归源模式已开启：你正在随机、多元地重新探索世界。",
+            reasons,
         )
 
     if viewer is not None:
@@ -442,13 +617,21 @@ def list_feed_videos(
             params = state.get("parameters") if isinstance(state.get("parameters"), dict) else {}
             pool = _origin_feed_pool(db, viewer_id=viewer.id, offset=offset, limit=limit)
             items = _algorithm_feed_order(pool, mode=mode, parameters=params, seed=seed, page=page, offset=offset, limit=limit)
+            reasons = _recommendation_reasons_for_items(
+                items,
+                mode=mode,
+                parameters=params,
+                seed=seed,
+                page=page,
+                pool=pool,
+            )
             explanation = {
                 "efficiency": "效率模式已开启：优先呈现信息密度、学习价值和目标匹配更高的内容。",
                 "growth": "成长模式已开启：系统会更多推送有价值但不完全熟悉的内容，帮助你突破舒适区。",
                 "emotion": "情绪模式已开启：内容会更偏放松、娱乐和沉浸体验。",
                 "custom": "自定义模式已开启：推荐会按照你的参数权重运行。",
             }[mode]
-            return items, len(pool), len(pool) > offset + limit, mode, True, explanation
+            return items, len(pool), len(pool) > offset + limit, mode, True, explanation, reasons
 
     items, total, has_more = list_videos(
         db,
@@ -462,11 +645,27 @@ def list_feed_videos(
         author_id=None,
         follower_id_for_following=None,
     )
-    return items, total, has_more, "personalized", True, None
+    reasons = _recommendation_reasons_for_items(
+        items,
+        mode="personalized",
+        parameters={},
+        seed=str(viewer.id) if viewer is not None else "anonymous",
+        page=page,
+        pool=items,
+    )
+    return items, total, has_more, "personalized", True, None, reasons
 
 
 def recommendation_reason(*, mode: str, video: Video) -> tuple[dict[str, int], str]:
-    return algorithm_reset_service.recommendation_reason_for_video(mode=mode, video=video)
+    reasons = _recommendation_reasons_for_items(
+        [video],
+        mode=mode,
+        parameters={},
+        seed="fallback",
+        page=1,
+        pool=[video],
+    )
+    return reasons[video.id]
 
 
 def record_feed_attention(db: Session, *, viewer: User | None, mode: str, items: list[Video]) -> None:

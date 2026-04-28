@@ -278,7 +278,7 @@ watch(peerId, () => {
             <button type="button" class="back-btn" @click="backToList">‹</button>
             <span class="avatar thread-avatar">
               <img v-if="activePeerAvatar" :src="activePeerAvatar" alt="" />
-              <span v-else>{{ activePeer?.username.slice(0, 1).toUpperCase() || "聊" }}</span>
+              <span v-else>{{ activePeer?.username?.slice(0, 1).toUpperCase() || "聊" }}</span>
             </span>
             <span class="thread-name">
               <RouterLink v-if="activePeer" :to="{ name: 'user-profile', params: { id: activePeer.id } }">
@@ -290,7 +290,7 @@ watch(peerId, () => {
             <button type="button" class="more-btn" title="更多">…</button>
           </div>
           <div ref="threadRef" class="thread">
-            <div v-if="activePeer && messages.length > 0" class="greet-card">
+            <div v-if="activePeer && messages.length === 0" class="greet-card">
               <div>
                 <b>打个招呼</b>
                 <small>用一句轻松的话开启聊天</small>
@@ -797,8 +797,30 @@ h1 {
     max-height: calc(100dvh - 142px);
     border-radius: 18px 18px 0 0;
   }
+  .layout.has-peer .thread-card {
+    animation: dm-thread-slide-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform, opacity;
+  }
   .greet-card {
     flex-wrap: wrap;
+  }
+}
+
+@keyframes dm-thread-slide-in {
+  from {
+    opacity: 0.94;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .layout.has-peer .thread-card {
+    animation: none;
+    will-change: auto;
   }
 }
 </style>

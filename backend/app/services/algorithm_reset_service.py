@@ -3,7 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, inspect, text
+from sqlalchemy import delete, desc, inspect, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppError
@@ -13,8 +14,13 @@ from app.models.view_record import ViewRecord
 from app.models.user import User
 from app.repositories import algorithm_reset_repository
 from app.schemas.algorithm_reset import (
+    ATTENTION_VALUE_FORMULA,
     AiAgentPanelOut,
     AlgorithmParameters,
+    AlgorithmPresetCreate,
+    AlgorithmPresetListResponse,
+    AlgorithmPresetOut,
+    AlgorithmPresetResponse,
     AlgorithmResetResponse,
     AlgorithmStateOut,
     AlgorithmStateResponse,
@@ -130,6 +136,96 @@ def update_algorithm_state(db: Session, *, user: User, payload: AlgorithmStateUp
     return AlgorithmStateResponse(success=True, message="算法模式已更新。", data=_state_out(row))
 
 
+def _preset_out(row) -> AlgorithmPresetOut:
+    return AlgorithmPresetOut(
+        id=row.id,
+        name=row.name,
+        description=row.description,
+        parameters=AlgorithmParameters.model_validate(row.parameters),
+        createdAt=row.created_at,
+        updatedAt=row.updated_at,
+    )
+
+
+def list_algorithm_presets(db: Session, *, user: User) -> AlgorithmPresetListResponse:
+    rows = algorithm_reset_repository.list_presets(db, user_id=user.id)
+    return AlgorithmPresetListResponse(success=True, items=[_preset_out(row) for row in rows])
+
+
+def save_algorithm_preset(db: Session, *, user: User, payload: AlgorithmPresetCreate) -> AlgorithmPresetResponse:
+    name = payload.name.strip()
+    if not name:
+        raise AppError("模板名称不能为空", status_code=400, code="ALGORITHM_PRESET_NAME_EMPTY")
+    current = algorithm_reset_repository.get_state(db, user_id=user.id)
+    parameters = payload.parameters
+    if parameters is None:
+        if current is None:
+            parameters = MODE_DEFAULTS["custom"]
+        else:
+            parameters = AlgorithmParameters.model_validate(
+                current.algorithm_parameters or MODE_DEFAULTS.get(current.mode, MODE_DEFAULTS["custom"]).model_dump()
+            )
+    description = payload.description.strip() if payload.description else None
+    params = parameters.model_dump()
+    try:
+        row = algorithm_reset_repository.upsert_preset(
+            db,
+            user_id=user.id,
+            name=name,
+            description=description,
+            parameters=params,
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        try:
+            row = algorithm_reset_repository.upsert_preset(
+                db,
+                user_id=user.id,
+                name=name,
+                description=description,
+                parameters=params,
+            )
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise AppError(
+                "同名世界模型模板正在被保存，请稍后重试",
+                status_code=409,
+                code="ALGORITHM_PRESET_NAME_CONFLICT",
+            ) from exc
+    return AlgorithmPresetResponse(success=True, message="世界模型模板已保存。", data=_preset_out(row))
+
+
+def apply_algorithm_preset(db: Session, *, user: User, preset_id: uuid.UUID) -> AlgorithmStateResponse:
+    preset = algorithm_reset_repository.get_preset(db, preset_id=preset_id, user_id=user.id)
+    if preset is None:
+        raise AppError("算法模板不存在", status_code=404, code="ALGORITHM_PRESET_NOT_FOUND")
+    row = algorithm_reset_repository.upsert_algorithm_state(
+        db,
+        user_id=user.id,
+        mode="custom",
+        personalized=True,
+        cold_start_strategy="custom_mode",
+        algorithm_parameters=AlgorithmParameters.model_validate(preset.parameters).model_dump(),
+    )
+    db.commit()
+    return AlgorithmStateResponse(success=True, message="世界模型模板已应用。", data=_state_out(row))
+
+
+def reset_custom_parameters_to_default(db: Session, *, user: User) -> AlgorithmStateResponse:
+    row = algorithm_reset_repository.upsert_algorithm_state(
+        db,
+        user_id=user.id,
+        mode="custom",
+        personalized=True,
+        cold_start_strategy="custom_mode",
+        algorithm_parameters=MODE_DEFAULTS["custom"].model_dump(),
+    )
+    db.commit()
+    return AlgorithmStateResponse(success=True, message="自定义参数已恢复默认。", data=_state_out(row))
+
+
 def recommendation_reason_for_video(*, mode: str, video: Video) -> tuple[dict[str, int], str]:
     if mode == "origin":
         reason = {"随机探索": 50, "内容质量": 30, "时间新鲜度": 20}
@@ -147,24 +243,70 @@ def recommendation_reason_for_video(*, mode: str, video: Video) -> tuple[dict[st
     return reason, text
 
 
+def _clamp_score(value: float) -> int:
+    return int(max(0, min(round(value), 100)))
+
+
+def _latest_attention_snapshot(db: Session, *, user_id: uuid.UUID) -> AttentionValueSnapshot | None:
+    stmt = (
+        select(AttentionValueSnapshot)
+        .where(AttentionValueSnapshot.user_id == user_id)
+        .order_by(desc(AttentionValueSnapshot.created_at), desc(AttentionValueSnapshot.id))
+        .limit(1)
+    )
+    return db.execute(stmt).scalar_one_or_none()
+
+
 def record_attention_snapshot(db: Session, *, user: User | None, mode: str, videos: list[Video]) -> None:
     if user is None or not videos:
         return
-    quality = sum(min(v.views_count + v.likes_count * 4 + v.favorites_count * 6, 1000) for v in videos) / max(len(videos), 1)
-    diversity = len({v.author_id for v in videos}) / max(len(videos), 1)
-    depth = sum(1 for v in videos if (v.description or "").strip() or (v.duration_seconds or 0) >= 180) / max(len(videos), 1)
-    input_quality = int(min(100, quality / 10))
-    output_value = int(min(100, (sum(v.likes_count + v.favorites_count for v in videos) / max(len(videos), 1)) * 8))
-    cognitive_growth = int(min(100, diversity * 45 + depth * 55))
-    attention_index = int(input_quality * 0.4 + output_value * 0.25 + cognitive_growth * 0.35)
+    count = max(len(videos), 1)
+    quality = sum(min(v.views_count + v.likes_count * 4 + v.favorites_count * 6, 1000) for v in videos) / count
+    diversity = len({v.author_id for v in videos}) / count
+    depth = sum(1 for v in videos if (v.description or "").strip() or (v.duration_seconds or 0) >= 180) / count
+    completion_proxy = sum(min((v.duration_seconds or 120) / 300, 1.0) for v in videos) / count
+    engagement_ratio = (
+        sum((v.likes_count + v.favorites_count * 2 + int(getattr(v, "comments_count", 0)) * 3) / max(v.views_count + 1, 1) for v in videos)
+        / count
+    )
+    share_proxy = (
+        sum(min((v.favorites_count + int(getattr(v, "comments_count", 0))) / max(v.views_count + 1, 1), 1.0) for v in videos)
+        / count
+    )
+    time_quality = _clamp_score(completion_proxy * 55 + depth * 25 + diversity * 20)
+    information_value = _clamp_score(min(quality / 10, 100) * 0.55 + depth * 30 + diversity * 15)
+    propagation_impact = _clamp_score(min(engagement_ratio * 180, 100) * 0.65 + min(share_proxy * 200, 100) * 0.35)
+    deep_engagement = _clamp_score(depth * 45 + min(engagement_ratio * 160, 100) * 0.35 + diversity * 20)
+    input_quality = _clamp_score((time_quality + information_value + diversity * 100) / 3)
+    output_value = propagation_impact
+    cognitive_growth = _clamp_score((information_value * 0.45) + (deep_engagement * 0.55))
+    attention_index = _clamp_score(
+        (time_quality / 100)
+        * (information_value / 100)
+        * (max(propagation_impact, 1) / 100)
+        * (deep_engagement / 100)
+        * 100
+    )
     row = AttentionValueSnapshot(
         user_id=user.id,
         algorithm_mode=mode,
         input_quality=input_quality,
         output_value=output_value,
         cognitive_growth=cognitive_growth,
+        time_quality=time_quality,
+        information_value=information_value,
+        propagation_impact=propagation_impact,
+        deep_engagement=deep_engagement,
         attention_index=attention_index,
-        detail={"items": len(videos), "authorDiversity": diversity, "depthRatio": depth},
+        detail={
+            "items": len(videos),
+            "authorDiversity": round(diversity, 4),
+            "depthRatio": round(depth, 4),
+            "completionProxy": round(completion_proxy, 4),
+            "engagementRatio": round(engagement_ratio, 4),
+            "shareProxy": round(share_proxy, 4),
+            "formula": ATTENTION_VALUE_FORMULA,
+        },
     )
     db.add(row)
     state = algorithm_reset_repository.get_state(db, user_id=user.id)
@@ -176,16 +318,23 @@ def record_attention_snapshot(db: Session, *, user: User | None, mode: str, vide
 
 def get_attention_index(db: Session, *, user: User) -> AttentionIndexResponse:
     state = algorithm_reset_repository.get_state(db, user_id=user.id)
-    attention = state.attention_index if state is not None else 0
+    latest = _latest_attention_snapshot(db, user_id=user.id)
+    attention = latest.attention_index if latest is not None else (state.attention_index if state is not None else 0)
     return AttentionIndexResponse(
         success=True,
         data=AttentionIndexOut(
             attentionIndex=attention,
-            inputQuality=min(100, attention),
-            outputValue=max(0, attention - 8),
-            cognitiveGrowth=min(100, attention + 6),
-            latestMode=state.mode if state is not None else None,
-            explanation="Attention Index = 输入质量 x 40% + 输出价值 x 25% + 认知提升 x 35%。",
+            inputQuality=latest.input_quality if latest is not None else min(100, attention),
+            outputValue=latest.output_value if latest is not None else max(0, attention - 8),
+            cognitiveGrowth=latest.cognitive_growth if latest is not None else min(100, attention + 6),
+            timeQuality=latest.time_quality if latest is not None else 0,
+            informationValue=latest.information_value if latest is not None else 0,
+            propagationImpact=latest.propagation_impact if latest is not None else 0,
+            deepEngagement=latest.deep_engagement if latest is not None else 0,
+            formula=ATTENTION_VALUE_FORMULA,
+            detail=latest.detail if latest is not None else None,
+            latestMode=latest.algorithm_mode if latest is not None else (state.mode if state is not None else None),
+            explanation="Attention Index 使用乘法模型：时间质量 × 信息价值 × 传播影响 × 深度参与；任一维度过低都会拉低最终指数。",
         ),
     )
 
@@ -193,17 +342,82 @@ def get_attention_index(db: Session, *, user: User) -> AttentionIndexResponse:
 def get_ai_agent_panel(db: Session, *, user: User) -> AiAgentPanelOut:
     state = algorithm_reset_repository.get_state(db, user_id=user.id)
     mode = state.mode if state is not None else "efficiency"
+    latest = _latest_attention_snapshot(db, user_id=user.id)
+    params = AlgorithmParameters.model_validate(
+        state.algorithm_parameters if state is not None and state.algorithm_parameters else MODE_DEFAULTS.get(mode, MODE_DEFAULTS["custom"]).model_dump()
+    )
+    factors = {
+        "timeQuality": latest.time_quality if latest is not None else 0,
+        "informationValue": latest.information_value if latest is not None else 0,
+        "propagationImpact": latest.propagation_impact if latest is not None else 0,
+        "deepEngagement": latest.deep_engagement if latest is not None else 0,
+    }
+    weakest_key = min(factors, key=factors.get) if latest is not None else "timeQuality"
+    factor_names = {
+        "timeQuality": "时间质量",
+        "informationValue": "信息价值",
+        "propagationImpact": "传播影响",
+        "deepEngagement": "深度参与",
+    }
+    mode_names = {
+        "origin": "归源模式",
+        "efficiency": "效率模式",
+        "growth": "成长模式",
+        "emotion": "情绪模式",
+        "custom": "自定义模式",
+    }
+    alerts: list[str] = []
+    if latest is None:
+        alerts.append("还没有足够的观看样本，先浏览一组推荐内容以生成真实注意力画像。")
+    elif factors[weakest_key] < 35:
+        alerts.append(f"{factor_names[weakest_key]}偏低，建议先补齐这一维度，否则 Attention Index 会被乘法模型拉低。")
+    if mode == "emotion" and params.entertainment >= 80 and params.depth <= 30:
+        alerts.append("娱乐性很高但深度较低，适合放松，但不建议长时间作为默认世界模型。")
+    if mode == "growth" and params.challenge >= 85:
+        alerts.append("成长模式挑战强度较高，建议搭配收藏和笔记，否则高挑战内容容易流失价值。")
+
+    learning_path = {
+        "origin": "先连续探索 6-10 条不同作者内容，再把真正有价值的主题保存成自定义模板。",
+        "efficiency": "按“高信息密度内容 -> 收藏 -> 复盘输出”建立短链路学习路径。",
+        "growth": "选择一个陌生但高价值主题，连续观看 3 条深度内容，再写下一个反常识结论。",
+        "emotion": "把情绪模式限定为短时恢复区，结束后切回效率或成长模式承接长期目标。",
+        "custom": "围绕当前世界模型做一轮 A/B 调参：每次只调整一个参数并观察 Attention 四因子变化。",
+    }.get(mode, "先建立明确目标，再选择匹配的算法模式。")
+    optimization = (
+        f"当前最需要优化的是「{factor_names[weakest_key]}」。"
+        if latest is not None
+        else "当前样本不足，AI Agent 暂不做强判断。"
+    )
+    suggestions = [
+        optimization,
+        "保留高价值内容的收藏或评论行为，系统会把它视为更强的深度参与信号。",
+        f"当前模式为{mode_names.get(mode, mode)}，可根据目标切换到更匹配的算法模式。",
+    ]
+    if mode == "custom":
+        suggestions.append(f"你的自定义世界模型：随机 {params.randomness}、多样 {params.diversity}、深度 {params.depth}、娱乐 {params.entertainment}、挑战 {params.challenge}、新颖 {params.novelty}。")
     return AiAgentPanelOut(
-        summary=f"你的 AI Agent 当前围绕「{mode}」模式优化内容筛选。",
-        suggestions=["优先收藏高价值内容，提升输出价值。", "每周切换一次成长模式，拓展认知边界。", "当连续浏览低深度内容时，尝试提高深度或认知挑战参数。"],
-        nextActions=["查看为什么推荐你", "调整自定义算法参数", "生成一条学习路径建议"],
+        mode=mode,
+        summary=f"你的 AI Agent 当前围绕「{mode_names.get(mode, mode)}」进行注意力优化。",
+        contentSummary=(
+            f"最近一次推荐样本的 Attention Index 为 {latest.attention_index}，"
+            f"四因子分别是时间质量 {factors['timeQuality']}、信息价值 {factors['informationValue']}、"
+            f"传播影响 {factors['propagationImpact']}、深度参与 {factors['deepEngagement']}。"
+            if latest is not None
+            else "还没有生成 Attention 快照，Agent 会先等待你的真实浏览行为。"
+        ),
+        attentionOptimization=optimization,
+        learningPathSuggestion=learning_path,
+        alerts=alerts,
+        attentionFactors=factors,
+        suggestions=suggestions,
+        nextActions=["查看为什么推荐你", "调整自定义算法参数", "保存当前世界模型模板", "按建议生成一条学习路径"],
     )
 
 
 def get_governance_power(db: Session, *, user: User) -> GovernancePowerOut:
     state = algorithm_reset_repository.get_state(db, user_id=user.id)
     power = state.attention_index if state is not None else 0
-    return GovernancePowerOut(votingPower=power, formula="投票权重 = Attention Value", canVote=power > 0)
+    return GovernancePowerOut(votingPower=power, formula="投票权重 = Attention Value（四因子乘法模型）", canVote=power > 0)
 
 
 def is_origin_mode(db: Session, *, user_id: uuid.UUID) -> bool:
@@ -239,7 +453,7 @@ def reset_to_origin(
         for table_name in OPTIONAL_RECOMMENDATION_TABLES:
             if _delete_user_rows_if_present(db, table_name=table_name, user_id=user.id):
                 affected_tables.append(table_name)
-        algorithm_reset_repository.upsert_origin_state(
+        state_row = algorithm_reset_repository.upsert_origin_state(
             db,
             user_id=user.id,
             reset_at=now,
@@ -264,11 +478,5 @@ def reset_to_origin(
     return AlgorithmResetResponse(
         success=True,
         message="你已归源。系统将不再基于旧画像推送内容。",
-        data=AlgorithmStateOut(
-            mode="origin",
-            personalized=False,
-            resetAt=now,
-            explorationSeed=exploration_seed,
-            coldStartStrategy="random_balanced",
-        ),
+        data=_state_out(state_row),
     )

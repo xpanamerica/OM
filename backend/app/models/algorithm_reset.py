@@ -79,6 +79,32 @@ class AttentionValueSnapshot(Base):
     input_quality: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     output_value: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     cognitive_growth: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    time_quality: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    information_value: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    propagation_impact: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    deep_engagement: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     attention_index: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class UserAlgorithmPreset(Base):
+    __tablename__ = "user_algorithm_presets"
+    __table_args__ = (
+        Index("ix_user_algorithm_presets_user_created", "user_id", "created_at"),
+        Index("ix_user_algorithm_presets_user_name", "user_id", "name", unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    parameters: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )

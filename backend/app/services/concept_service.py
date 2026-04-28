@@ -56,7 +56,7 @@ def list_published_videos_for_concept(
     )
     items: list[ConceptLinkedVideoOut] = []
     for v, vc in pairs:
-        base = video_privacy.video_list_item_for_viewer(v, viewer)
+        base = video_privacy.video_list_item_for_viewer(v, viewer, db)
         items.append(
             ConceptLinkedVideoOut(
                 **base.model_dump(),

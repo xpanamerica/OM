@@ -145,7 +145,7 @@ def get_path_detail(db: Session, viewer: User | None, path_id: uuid.UUID) -> Lea
         v = video_repository.get_by_id(db, it.video_id, load_tags=True)
         video_pub = None
         if v is not None and video_service.can_view_video(v, viewer):
-            video_pub = video_privacy.video_list_item_for_viewer(v, viewer)
+            video_pub = video_privacy.video_list_item_for_viewer(v, viewer, db)
         out_items.append(
             LearningPathItemPublic(
                 order_index=it.order_index,

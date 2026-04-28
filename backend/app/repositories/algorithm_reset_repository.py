@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.algorithm_reset import AlgorithmResetLog, UserAlgorithmState
+from app.models.algorithm_reset import AlgorithmResetLog, UserAlgorithmPreset, UserAlgorithmState
 
 
 def get_state(db: Session, *, user_id: uuid.UUID) -> UserAlgorithmState | None:
@@ -107,6 +107,45 @@ def create_log(
         status=status,
         error_message=error_message,
     )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def list_presets(db: Session, *, user_id: uuid.UUID) -> list[UserAlgorithmPreset]:
+    stmt = (
+        select(UserAlgorithmPreset)
+        .where(UserAlgorithmPreset.user_id == user_id)
+        .order_by(UserAlgorithmPreset.updated_at.desc(), UserAlgorithmPreset.created_at.desc())
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+def get_preset(db: Session, *, preset_id: uuid.UUID, user_id: uuid.UUID) -> UserAlgorithmPreset | None:
+    stmt = select(UserAlgorithmPreset).where(
+        UserAlgorithmPreset.id == preset_id,
+        UserAlgorithmPreset.user_id == user_id,
+    )
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def upsert_preset(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    name: str,
+    description: str | None,
+    parameters: dict,
+) -> UserAlgorithmPreset:
+    stmt = select(UserAlgorithmPreset).where(
+        UserAlgorithmPreset.user_id == user_id,
+        UserAlgorithmPreset.name == name,
+    )
+    row = db.execute(stmt).scalar_one_or_none()
+    if row is None:
+        row = UserAlgorithmPreset(user_id=user_id, name=name)
+    row.description = description
+    row.parameters = parameters
     db.add(row)
     db.flush()
     return row

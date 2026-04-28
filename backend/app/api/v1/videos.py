@@ -147,7 +147,7 @@ def list_feed_videos(
     limit: VideoListLimit = 20,
     page: int = Query(1, ge=1, le=100_000, description="用于 origin mode 随机性的页码；与 explorationSeed 共同生成稳定随机序。"),
 ) -> VideoFeedResponse:
-    items, total, has_more, algorithm_mode, personalized, explanation = video_service.list_feed_videos(
+    items, total, has_more, algorithm_mode, personalized, explanation, reasons_by_id = video_service.list_feed_videos(
         db,
         optional_user,
         offset=offset,
@@ -158,7 +158,7 @@ def list_feed_videos(
     item_out = []
     for x in items:
         row = video_privacy.video_list_item_for_viewer(x, optional_user, db)
-        reason, text = video_service.recommendation_reason(mode=algorithm_mode, video=x)
+        reason, text = reasons_by_id.get(x.id) or video_service.recommendation_reason(mode=algorithm_mode, video=x)
         item_out.append(row.model_copy(update={"recommendation_reason": reason, "recommendation_text": text}))
     response.headers["X-Total-Count"] = str(total)
     response.headers["Cache-Control"] = MUTABLE_GET_CACHE_CONTROL

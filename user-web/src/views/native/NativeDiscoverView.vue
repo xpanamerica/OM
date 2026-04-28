@@ -18,8 +18,17 @@ const searchQ = ref("");
 const modePanelOpen = ref(false);
 const modeSaving = ref(false);
 const attentionIndex = ref<number | null>(null);
+const attentionDetail = ref<{
+  timeQuality: number;
+  informationValue: number;
+  propagationImpact: number;
+  deepEngagement: number;
+  explanation: string;
+} | null>(null);
 const aiSummary = ref("");
+const aiAgent = ref<algorithmApi.AiAgentPanel | null>(null);
 const governancePower = ref<number | null>(null);
+const presets = ref<algorithmApi.AlgorithmPreset[]>([]);
 
 const customParams = reactive<algorithmApi.AlgorithmParameters>({
   randomness: 50,
@@ -39,6 +48,9 @@ const modeOptions = [
 ] as const;
 
 const activeModeTitle = computed(() => modeOptions.find((m) => m.key === algorithm.algorithmMode)?.title || "算法模式");
+const worldModelSummary = computed(() =>
+  `随机 ${customParams.randomness} / 多样 ${customParams.diversity} / 深度 ${customParams.depth} / 娱乐 ${customParams.entertainment} / 挑战 ${customParams.challenge} / 新颖 ${customParams.novelty}`,
+);
 
 async function load() {
   loading.value = true;
@@ -64,6 +76,7 @@ async function chooseMode(mode: (typeof modeOptions)[number]["key"]) {
       parameters: mode === "custom" ? { ...customParams } : undefined,
     });
     algorithm.setState(result.data);
+    Object.assign(customParams, result.data.parameters);
     ElMessage.success(result.message || "算法模式已更新");
     modePanelOpen.value = false;
   } catch (e) {
@@ -77,16 +90,79 @@ async function openModePanel() {
   modePanelOpen.value = true;
   if (!auth.isLoggedIn) return;
   try {
-    const [attention, agent, governance] = await Promise.all([
+    const [attention, agent, governance, presetList, state] = await Promise.all([
       algorithmApi.getAttentionIndex(),
       algorithmApi.getAiAgentPanel(),
       algorithmApi.getGovernancePower(),
+      algorithmApi.listAlgorithmPresets(),
+      algorithmApi.getAlgorithmState(),
     ]);
     attentionIndex.value = attention.data.attentionIndex;
+    attentionDetail.value = {
+      timeQuality: attention.data.timeQuality,
+      informationValue: attention.data.informationValue,
+      propagationImpact: attention.data.propagationImpact,
+      deepEngagement: attention.data.deepEngagement,
+      explanation: attention.data.explanation,
+    };
     aiSummary.value = agent.summary;
+    aiAgent.value = agent;
     governancePower.value = governance.votingPower;
+    presets.value = presetList.items;
+    algorithm.setState(state.data);
+    Object.assign(customParams, state.data.parameters);
   } catch {
     // 面板洞察是增强信息，失败时不阻塞模式切换。
+  }
+}
+
+async function saveCurrentPreset() {
+  if (!auth.isLoggedIn) {
+    ElMessage.warning("请先登录后再保存世界模型");
+    return;
+  }
+  modeSaving.value = true;
+  try {
+    const name = `世界模型 ${new Date().toLocaleDateString("zh-CN")}`;
+    await algorithmApi.saveAlgorithmPreset({
+      name,
+      description: "从当前自定义参数保存",
+      parameters: { ...customParams },
+    });
+    presets.value = (await algorithmApi.listAlgorithmPresets()).items;
+    ElMessage.success("世界模型模板已保存");
+  } catch (e) {
+    ElMessage.error(formatApiError(e));
+  } finally {
+    modeSaving.value = false;
+  }
+}
+
+async function applyPreset(id: string) {
+  modeSaving.value = true;
+  try {
+    const result = await algorithmApi.applyAlgorithmPreset(id);
+    algorithm.setState(result.data);
+    Object.assign(customParams, result.data.parameters);
+    ElMessage.success(result.message || "世界模型已应用");
+  } catch (e) {
+    ElMessage.error(formatApiError(e));
+  } finally {
+    modeSaving.value = false;
+  }
+}
+
+async function resetDefaults() {
+  modeSaving.value = true;
+  try {
+    const result = await algorithmApi.resetCustomDefaults();
+    algorithm.setState(result.data);
+    Object.assign(customParams, result.data.parameters);
+    ElMessage.success(result.message || "已恢复默认参数");
+  } catch (e) {
+    ElMessage.error(formatApiError(e));
+  } finally {
+    modeSaving.value = false;
   }
 }
 
@@ -100,7 +176,7 @@ onMounted(() => {
     <section class="discover-hero">
       <div class="discover-hero__glow" aria-hidden="true" />
       <div class="discover-hero__head">
-        <h1>发现</h1>
+        <h1>Discovery</h1>
         <button type="button" class="mode-chip" @click="openModePanel">
           <span>算法模式</span>
           <b>{{ activeModeTitle }}</b>
@@ -159,15 +235,43 @@ onMounted(() => {
           <div class="insight-strip">
             <div><b>{{ attentionIndex ?? "—" }}</b><span>Attention Index</span></div>
             <div><b>{{ governancePower ?? "—" }}</b><span>治理投票权重</span></div>
+            <div><b>{{ attentionDetail?.timeQuality ?? "—" }}</b><span>时间质量</span></div>
+            <div><b>{{ attentionDetail?.informationValue ?? "—" }}</b><span>信息价值</span></div>
+            <div><b>{{ attentionDetail?.propagationImpact ?? "—" }}</b><span>传播影响</span></div>
+            <div><b>{{ attentionDetail?.deepEngagement ?? "—" }}</b><span>深度参与</span></div>
+            <p v-if="attentionDetail">{{ attentionDetail.explanation }}</p>
             <p>{{ aiSummary || "AI Agent 将基于你的算法模式生成总结、注意力优化和学习路径建议。" }}</p>
+          </div>
+          <div class="agent-panel">
+            <h3>AI Agent v1</h3>
+            <p>{{ aiAgent?.contentSummary || "等待真实浏览样本后生成内容摘要。" }}</p>
+            <p><b>注意力优化：</b>{{ aiAgent?.attentionOptimization || "暂无优化建议。" }}</p>
+            <p><b>学习路径：</b>{{ aiAgent?.learningPathSuggestion || "先选择算法模式并浏览内容。" }}</p>
+            <div v-if="aiAgent?.alerts?.length" class="agent-alerts">
+              <span v-for="alert in aiAgent.alerts" :key="alert">{{ alert }}</span>
+            </div>
+            <ul v-if="aiAgent?.suggestions?.length">
+              <li v-for="item in aiAgent.suggestions" :key="item">{{ item }}</li>
+            </ul>
           </div>
           <div class="custom-panel">
             <h3>自定义参数</h3>
+            <p class="world-model">{{ worldModelSummary }}</p>
             <label v-for="(label, key) in { randomness: '随机性', diversity: '多样性', depth: '深度', entertainment: '娱乐性', challenge: '认知挑战', novelty: '新颖性' }" :key="key">
               <span>{{ label }} · {{ customParams[key] }}</span>
               <input v-model.number="customParams[key]" type="range" min="0" max="100" />
             </label>
-            <button type="button" class="custom-apply" :disabled="modeSaving" @click="chooseMode('custom')">应用自定义模式</button>
+            <div class="custom-actions">
+              <button type="button" class="custom-apply" :disabled="modeSaving" @click="chooseMode('custom')">应用自定义模式</button>
+              <button type="button" class="custom-secondary" :disabled="modeSaving" @click="saveCurrentPreset">保存模板</button>
+              <button type="button" class="custom-secondary" :disabled="modeSaving" @click="resetDefaults">恢复默认</button>
+            </div>
+            <div v-if="presets.length" class="preset-list">
+              <button v-for="preset in presets" :key="preset.id" type="button" :disabled="modeSaving" @click="applyPreset(preset.id)">
+                <b>{{ preset.name }}</b>
+                <span>深度 {{ preset.parameters.depth }} · 挑战 {{ preset.parameters.challenge }} · 新颖 {{ preset.parameters.novelty }}</span>
+              </button>
+            </div>
           </div>
         </section>
       </div>
@@ -225,9 +329,9 @@ onMounted(() => {
 .discover-hero__head {
   position: relative;
   z-index: 1;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -239,6 +343,8 @@ onMounted(() => {
   line-height: 1;
   font-weight: 950;
   letter-spacing: -0.08em;
+  grid-column: 2;
+  text-align: center;
 }
 
 .discover-hero__head span {
@@ -250,6 +356,8 @@ onMounted(() => {
 }
 
 .mode-chip {
+  grid-column: 3;
+  justify-self: end;
   flex-shrink: 0;
   display: grid;
   gap: 2px;
@@ -469,6 +577,54 @@ onMounted(() => {
   grid-column: 1 / -1;
 }
 
+.agent-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid rgba(167, 139, 250, 0.18);
+  border-radius: 18px;
+  background: rgba(30, 27, 75, 0.36);
+}
+
+.agent-panel h3,
+.agent-panel p {
+  margin: 0;
+}
+
+.agent-panel h3 {
+  color: #e9d5ff;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.agent-panel p,
+.agent-panel li {
+  color: #c4b5fd;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.agent-panel ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.agent-alerts {
+  display: grid;
+  gap: 5px;
+}
+
+.agent-alerts span {
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 12px;
+  padding: 6px 8px;
+  background: rgba(120, 53, 15, 0.24);
+  color: #fde68a;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .mode-card {
   display: grid;
   gap: 4px;
@@ -507,6 +663,17 @@ onMounted(() => {
   font-size: 15px;
 }
 
+.world-model {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(103, 232, 249, 0.14);
+  border-radius: 14px;
+  background: rgba(8, 47, 73, 0.28);
+  color: #bae6fd;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .custom-panel label {
   display: grid;
   gap: 6px;
@@ -520,6 +687,12 @@ onMounted(() => {
   accent-color: #22d3ee;
 }
 
+.custom-actions {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr 0.8fr;
+  gap: 8px;
+}
+
 .custom-apply {
   width: 100%;
   min-height: 42px;
@@ -528,5 +701,36 @@ onMounted(() => {
   background: linear-gradient(135deg, #67e8f9, #a78bfa);
   color: #06111f;
   font-weight: 950;
+}
+
+.custom-secondary {
+  min-height: 42px;
+  border: 1px solid rgba(103, 232, 249, 0.22);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.76);
+  color: #bae6fd;
+  font-weight: 900;
+}
+
+.preset-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.preset-list button {
+  display: grid;
+  gap: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+  padding: 9px 10px;
+  background: rgba(2, 6, 23, 0.45);
+  color: #e0f2fe;
+  text-align: left;
+}
+
+.preset-list span {
+  color: #93c5fd;
+  font-size: 11px;
 }
 </style>

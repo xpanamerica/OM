@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
-import { ElMessage } from "@/util/elementPlusMessage";
+import { ElMessage, ElMessageBox } from "@/util/elementPlusMessage";
 import * as adminApi from "@/api/admin";
 import { formatApiError } from "@/util/errors";
 
@@ -15,6 +15,7 @@ const filters = reactive({
 });
 
 const toggling = ref<string | null>(null);
+const deleting = ref<string | null>(null);
 
 async function load() {
   loading.value = true;
@@ -46,6 +47,25 @@ async function onActiveChange(row: adminApi.UserPublic, val: boolean) {
     await load();
   } finally {
     toggling.value = null;
+  }
+}
+
+async function confirmDelete(row: adminApi.UserPublic) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除用户「${row.username}」？删除后该账号将无法登录，并从后台用户列表中移除。`,
+      "删除用户",
+      { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" },
+    );
+    deleting.value = row.id;
+    await adminApi.adminDeleteUser(row.id);
+    ElMessage.success("已删除用户");
+    await load();
+  } catch (e) {
+    if (e === "cancel" || e === "close") return;
+    ElMessage.error(formatApiError(e));
+  } finally {
+    deleting.value = null;
   }
 }
 
@@ -81,6 +101,13 @@ onMounted(load);
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="注册时间" width="170" />
+      <el-table-column label="操作" width="88" fixed="right">
+        <template #default="{ row }">
+          <el-button type="danger" link :loading="deleting === row.id" @click="confirmDelete(row)">
+            删除
+          </el-button>
+        </template>
+      </el-table-column>
     </el-table>
 
     <el-pagination

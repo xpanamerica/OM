@@ -40,7 +40,7 @@ async function onRegister() {
       username: regForm.username,
       password: regForm.password,
     });
-    ElMessage.success("注册成功，请登录");
+    ElMessage.success("注册已提交，请等待后台验证通过后再登录");
     tab.value = "login";
     loginForm.username = regForm.username;
   } catch (e) {

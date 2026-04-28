@@ -85,6 +85,40 @@ def test_register_strips_username_and_email(client):
     assert body["username"] == "stripuser"
 
 
+def test_register_requires_admin_approval_when_enabled(client, db_session, monkeypatch):
+    monkeypatch.setattr(config_module.settings, "AUTH_REGISTRATION_REQUIRES_APPROVAL", True)
+    prefix = settings.API_V1_PREFIX
+    r = client.post(
+        f"{prefix}/auth/register",
+        json={
+            "email": "pending@example.com",
+            "username": "pendinguser",
+            "password": "secret1234",
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["is_active"] is False
+
+    denied = client.post(
+        f"{prefix}/auth/login",
+        data={"username": "pendinguser", "password": "secret1234"},
+    )
+    assert denied.status_code == 401
+
+    row = db_session.execute(select(User).where(User.email == "pending@example.com")).scalar_one()
+    row.is_active = True
+    db_session.add(row)
+    db_session.commit()
+
+    approved = client.post(
+        f"{prefix}/auth/login",
+        data={"username": "pendinguser", "password": "secret1234"},
+    )
+    assert approved.status_code == 200, approved.text
+    assert "access_token" in approved.json()
+
+
 def test_email_normalized_on_register(client):
     prefix = settings.API_V1_PREFIX
     r = client.post(

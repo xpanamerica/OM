@@ -99,6 +99,10 @@ class Settings(BaseSettings):
         default=False,
         description="为 True 时用 X-Forwarded-For 最左侧作为客户端 IP（仅置于受信反代之后开启）",
     )
+    AUTH_REGISTRATION_REQUIRES_APPROVAL: bool = Field(
+        default=True,
+        description="为 True 时，公开注册用户默认未启用，需后台管理员审核启用后才能登录。",
+    )
 
     COMMENT_POST_MAX_PER_VIDEO_PER_MINUTE: int = Field(
         default=12,

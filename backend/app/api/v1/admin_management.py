@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.api.dependencies.auth import AdminUser
 from app.api.deps import DbSession
@@ -129,6 +129,21 @@ def admin_set_user_active(
     return admin_management_service.set_user_active_for_admin(
         db, admin, user_id, is_active=body.is_active
     )
+
+
+@router.delete(
+    "/users/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除用户",
+    description=(
+        "须管理员。软删除用户并禁用账号；被删除用户会从用户列表、登录和用户查询中消失。"
+        "不能删除自己，也不能删除最后一个活跃管理员。"
+    ),
+    dependencies=[Depends(set_mutation_cache_control)],
+)
+def admin_delete_user(db: DbSession, admin: AdminUser, user_id: uuid.UUID) -> Response:
+    admin_management_service.delete_user_for_admin(db, admin, user_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

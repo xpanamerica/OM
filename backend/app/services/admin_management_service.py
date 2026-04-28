@@ -7,6 +7,8 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.core.admin_codes import (
+    ADMIN_CANNOT_DELETE_LAST_ACTIVE_ADMIN,
+    ADMIN_CANNOT_DELETE_SELF,
     ADMIN_CANNOT_DISABLE_LAST_ACTIVE_ADMIN,
     ADMIN_CANNOT_DISABLE_SELF,
     ADMIN_USER_NOT_FOUND,
@@ -86,6 +88,26 @@ def set_user_active_for_admin(db: Session, actor: User, user_id: uuid.UUID, *, i
     db.commit()
     db.refresh(u)
     return UserPublic.model_validate(u)
+
+
+def delete_user_for_admin(db: Session, actor: User, user_id: uuid.UUID) -> None:
+    if actor.id == user_id:
+        raise AppError("不能删除自己的账号", status_code=403, code=ADMIN_CANNOT_DELETE_SELF)
+    target = user_repository.get_by_id(db, user_id)
+    if target is None:
+        raise AppError("用户不存在", status_code=404, code=ADMIN_USER_NOT_FOUND)
+    if target.role == UserRole.ADMIN and target.is_active:
+        others = user_repository.count_active_admins_excluding(db, exclude_user_id=user_id)
+        if others < 1:
+            raise AppError(
+                "不能删除最后一个活跃管理员账号",
+                status_code=400,
+                code=ADMIN_CANNOT_DELETE_LAST_ACTIVE_ADMIN,
+            )
+    deleted = user_repository.soft_delete_user(db, user_id=user_id)
+    if deleted is None:
+        raise AppError("用户不存在", status_code=404, code=ADMIN_USER_NOT_FOUND)
+    db.commit()
 
 
 def get_platform_statistics(db: Session) -> AdminPlatformStatsOut:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
@@ -48,12 +49,14 @@ def create_user(
     username: str,
     hashed_password: str,
     role: UserRole = UserRole.USER,
+    is_active: bool = True,
 ) -> User:
     user = User(
         email=email,
         username=username,
         hashed_password=hashed_password,
         role=role,
+        is_active=is_active,
     )
     db.add(user)
     db.flush()
@@ -140,6 +143,17 @@ def set_user_is_active(db: Session, *, user_id: uuid.UUID, is_active: bool) -> U
     if u is None:
         return None
     u.is_active = is_active
+    db.add(u)
+    db.flush()
+    return u
+
+
+def soft_delete_user(db: Session, *, user_id: uuid.UUID) -> User | None:
+    u = get_by_id(db, user_id)
+    if u is None:
+        return None
+    u.is_active = False
+    u.deleted_at = datetime.now(timezone.utc)
     db.add(u)
     db.flush()
     return u

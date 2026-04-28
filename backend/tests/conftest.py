@@ -18,6 +18,8 @@ os.environ["ATTACHMENT_POST_RATE_LIMIT_USE_REDIS"] = "false"
 os.environ["EXPOSE_PROMETHEUS_METRICS"] = "false"
 # 全量测试在同一进程内多次登录，关闭登录限流避免偶发 429
 os.environ["AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE"] = "0"
+# 绝大多数历史用例关注注册后的业务链路；专门的审核用例会单独开启该开关。
+os.environ["AUTH_REGISTRATION_REQUIRES_APPROVAL"] = "false"
 for k in ("FIRST_SUPERUSER_EMAIL", "FIRST_SUPERUSER_USERNAME", "FIRST_SUPERUSER_PASSWORD"):
     os.environ.pop(k, None)
 

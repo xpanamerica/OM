@@ -73,6 +73,10 @@ export async function adminSetUserActive(userId: string, is_active: boolean): Pr
   return data;
 }
 
+export async function adminDeleteUser(userId: string): Promise<void> {
+  await http.delete(`/admin/users/${userId}`);
+}
+
 export async function adminPlatformStats(): Promise<AdminPlatformStats> {
   const { data } = await http.get<AdminPlatformStats>("/admin/statistics/platform");
   return data;

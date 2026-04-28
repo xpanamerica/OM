@@ -56,6 +56,7 @@ def test_non_admin_all_admin_endpoints_return_403(client, db_session):
     assert client.get(f"{base}/statistics/platform", headers=hdr).status_code == 403
     uid = str(uuid.uuid4())
     assert client.patch(f"{base}/users/{uid}/active", headers=hdr, json={"is_active": False}).status_code == 403
+    assert client.delete(f"{base}/users/{uid}", headers=hdr).status_code == 403
 
 
 def test_admin_list_videos_filter_status(client, db_session):
@@ -151,6 +152,7 @@ def test_openapi_contains_admin_routes_when_exposed(client):
         f"{prefix}/admin/users",
         f"{prefix}/admin/statistics/platform",
         f"{prefix}/admin/users/{{user_id}}/active",
+        f"{prefix}/admin/users/{{user_id}}",
     )
     assert "admin" in collect_operation_tags(paths)
 
@@ -198,6 +200,55 @@ def test_admin_cannot_disable_self(client, db_session):
         headers=adm,
         json={"is_active": False},
     )
+    assert r.status_code == 403
+
+
+def test_admin_delete_user_soft_deletes_and_blocks_login(client, db_session):
+    adm = _admin_hdr(db_session, client)
+    _register(client, "deluser102@example.com", "deluser102")
+    assert _login(client, "deluser102")
+    r_users = client.get(
+        f"{settings.API_V1_PREFIX}/admin/users",
+        headers=adm,
+        params={"keyword": "deluser102"},
+    )
+    uid = next(row["id"] for row in r_users.json() if row["username"] == "deluser102")
+
+    r = client.delete(f"{settings.API_V1_PREFIX}/admin/users/{uid}", headers=adm)
+    assert r.status_code == 204, r.text
+
+    row = db_session.execute(select(User).where(User.id == uuid.UUID(uid))).scalar_one()
+    assert row.deleted_at is not None
+    assert row.is_active is False
+
+    r_login = client.post(
+        f"{settings.API_V1_PREFIX}/auth/login",
+        data={"username": "deluser102", "password": "secret1234"},
+    )
+    assert r_login.status_code == 401
+    r_after = client.get(
+        f"{settings.API_V1_PREFIX}/admin/users",
+        headers=adm,
+        params={"keyword": "deluser102"},
+    )
+    assert all(row["id"] != uid for row in r_after.json())
+
+
+def test_admin_cannot_delete_self(client, db_session):
+    s = uuid.uuid4().hex[:10]
+    uname = f"ds{s}"
+    user_repository.create_user(
+        db_session,
+        email=f"{uname}@example.com",
+        username=uname,
+        hashed_password=get_password_hash("secret1234"),
+        role=UserRole.ADMIN,
+    )
+    db_session.commit()
+    adm = _login(client, uname)
+    r_users = client.get(f"{settings.API_V1_PREFIX}/admin/users", headers=adm, params={"keyword": uname})
+    uid = next(row["id"] for row in r_users.json() if row["username"] == uname)
+    r = client.delete(f"{settings.API_V1_PREFIX}/admin/users/{uid}", headers=adm)
     assert r.status_code == 403
 
 

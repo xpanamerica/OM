@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import AppError
 from app.core.security import (
     BCRYPT_TIMING_DUMMY_HASH,
@@ -28,6 +29,7 @@ def register_user(db: Session, payload: UserRegister) -> User:
             email=email,
             username=payload.username.strip(),
             hashed_password=get_password_hash(payload.password),
+            is_active=not settings.AUTH_REGISTRATION_REQUIRES_APPROVAL,
         )
         db.commit()
         db.refresh(user)

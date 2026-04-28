@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.env.local-beta
+.env.production
+.venv/
+# 生产 compose 默认挂载的应用日志目录
+logs/
+# 本机成片与稿件附件落盘（勿提交大文件）
+data/
+venv/
+*.sqlite3
+
+# 本机生成的 sudoers 片段（勿提交）
+.cache/

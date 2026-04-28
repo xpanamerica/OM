@@ -1,0 +1,10 @@
+# 可选：将 API 宿主机端口从「全网卡」收窄为仅回环（与 db/redis 策略一致）。
+#
+#   docker compose -f docker-compose.yml -f docker-compose.api-loopback.yml up -d --build
+#
+# 适用：仅本机浏览器/CLI 访问、或经 SSH 隧道转发；同网段其它设备将无法直连宿主机 8000。
+
+services:
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"

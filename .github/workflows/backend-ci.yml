@@ -1,0 +1,92 @@
+name: Backend CI
+
+on:
+  push:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pytest
+        env:
+          SECRET_KEY: unit-test-environment-default-secret-48b-min-ok!!
+          DATABASE_URL: sqlite+pysqlite:///:memory:
+          REDIS_URL: redis://127.0.0.1:6379/0
+          AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE: "0"
+        run: pytest -q --tb=short
+
+      - name: Byte-compile
+        run: python -m compileall -q app
+
+  alembic-postgres:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_alembic_only_not_a_real_deployment_secret
+          POSTGRES_DB: videodb_ci_migrate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d videodb_ci_migrate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Alembic upgrade head on empty PostgreSQL
+        env:
+          SECRET_KEY: unit-test-environment-default-secret-48b-min-ok!!
+          DATABASE_URL: postgresql+psycopg://postgres:ci_alembic_only_not_a_real_deployment_secret@localhost:5432/videodb_ci_migrate
+        run: alembic upgrade head
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose stack smoke (/health + /docs)
+        env:
+          COMPOSE_HTTP_TIMEOUT: "300"
+        run: bash scripts/verify_compose_stack_smoke.sh

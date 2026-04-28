@@ -1,0 +1,22 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
+  "python.condaPath": "${env:HOME}/software/anaconda3/bin/conda",
+  "python.terminal.activateEnvironment": true,
+  "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
+  "terminal.integrated.cwd": "${workspaceFolder}/backend",
+  "terminal.integrated.defaultProfile.linux": "media_app",
+  "terminal.integrated.automationProfile.linux": "media_app",
+  "terminal.integrated.profiles.linux": {
+    "media_app": {
+      "path": "/bin/bash",
+      "icon": "terminal-bash",
+      "overrideName": true,
+      "args": [
+        "--noprofile",
+        "--norc",
+        "-c",
+        "cd \"${workspaceFolder}/backend\" && if [ -f .venv/bin/activate ]; then . .venv/bin/activate; elif [ -f \"${env:HOME}/software/anaconda3/etc/profile.d/conda.sh\" ]; then . \"${env:HOME}/software/anaconda3/etc/profile.d/conda.sh\" && conda activate media_app; fi && exec bash -i --norc"
+      ]
+    }
+  }
+}

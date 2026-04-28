@@ -1,0 +1,36 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "pytest (media_app)",
+      "type": "process",
+      "command": "${config:python.defaultInterpreterPath}",
+      "args": ["-m", "pytest", "-q", "--tb=short"],
+      "options": {
+        "cwd": "${workspaceFolder}/backend",
+        "env": {
+          "SECRET_KEY": "unit-test-environment-default-secret-48b-min-ok!!",
+          "DATABASE_URL": "sqlite+pysqlite:///:memory:",
+          "REDIS_URL": "redis://127.0.0.1:6379/0"
+        }
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "compileall app (media_app)",
+      "type": "process",
+      "command": "${config:python.defaultInterpreterPath}",
+      "args": ["-m", "compileall", "-q", "app"],
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

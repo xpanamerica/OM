@@ -1,0 +1,237 @@
+/**
+ * 阶段 20.1：H5 全局辅助（不替换 Element 主题，仅补充安全区与触控）
+ */
+:root {
+  --h5-tabbar-height: 52px;
+  --h5-tap-min: 48px;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (max-width: 767px) {
+  #app {
+    min-height: 100dvh;
+    min-height: 100svh;
+  }
+}
+
+@media (max-width: 767px) {
+  body {
+    overflow-x: hidden;
+  }
+  /* 减轻横向「橡皮筋」与误滑出界感，与 #app overflow-x 配合 */
+  html,
+  body,
+  #app {
+    overscroll-behavior-x: none;
+  }
+}
+
+/* 列表页：桌面表格 / 移动卡片 切换 */
+@media (max-width: 767px) {
+  .h5-desktop-only {
+    display: none !important;
+  }
+  .h5-mobile-only {
+    display: block;
+  }
+}
+
+@media (min-width: 768px) {
+  .h5-mobile-only {
+    display: none !important;
+  }
+}
+
+/**
+ * 触控目标：仅主站 MainLayout（.main-layout），不影响 /auth
+ * 与 max-width 767px 同步，不依赖 Vue isMobile 首帧
+ */
+@media (max-width: 767px) {
+  #app .main-layout .el-button--default,
+  #app .main-layout .el-button--primary,
+  #app .main-layout .el-button--warning,
+  #app .main-layout .el-button--danger {
+    min-height: var(--h5-tap-min);
+    padding: 0 20px;
+  }
+
+  #app .main-layout .el-button.is-link {
+    min-height: var(--h5-tap-min);
+    padding: 0 14px;
+  }
+
+  #app .main-layout .el-pagination .btn-prev,
+  #app .main-layout .el-pagination .btn-next,
+  #app .main-layout .el-pagination .number {
+    min-width: 44px;
+    min-height: 44px;
+    line-height: 44px;
+  }
+}
+
+/* 列表页通用卡片（与 .h5-mobile-only 配合） */
+@media (max-width: 767px) {
+  .h5-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .h5-card-list__item {
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 10px;
+    background: var(--el-bg-color);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+  .h5-card-list__title {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.45;
+  }
+  .h5-card-list__title a {
+    color: var(--el-color-primary);
+    text-decoration: none;
+  }
+  .h5-card-list__meta {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .h5-card-list__row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    margin-top: 6px;
+    color: var(--el-text-color-regular);
+  }
+  .h5-card-list__muted {
+    color: var(--el-text-color-placeholder);
+    font-size: 12px;
+  }
+}
+
+/* 登录页（无 MainLayout） */
+@media (max-width: 767px) {
+  .auth-page {
+    padding: 16px !important;
+    align-items: flex-start !important;
+    padding-top: max(16px, env(safe-area-inset-top)) !important;
+  }
+  .auth-page .auth-card {
+    width: 100% !important;
+    max-width: none !important;
+  }
+  .auth-page .el-form-item__label {
+    padding-bottom: 4px;
+  }
+  .auth-page .el-button {
+    min-height: var(--h5-tap-min);
+  }
+  .auth-page .el-form-item:last-child .el-button + .el-button {
+    margin-left: 0;
+    margin-top: 10px;
+  }
+  .auth-page .el-form-item:last-child {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .auth-page .el-form-item:last-child .el-button {
+    width: 100%;
+  }
+
+  /* iOS：输入框字号 <16px 会聚焦时整页缩放；统一 16px */
+  #app .el-input__wrapper,
+  #app .el-textarea__inner,
+  #app .el-select__wrapper,
+  #app .el-select__selected-item {
+    font-size: 16px !important;
+  }
+
+  /* 有底部 Tab 时，锚点/键盘滚动不把内容顶到栏下 */
+  html {
+    scroll-padding-bottom: calc(var(--h5-tabbar-height) + env(safe-area-inset-bottom, 0px) + 16px);
+    scroll-padding-top: max(8px, env(safe-area-inset-top, 0px));
+    overscroll-behavior-y: contain;
+  }
+
+  /* 详情页（无 Tab）顶部返回：大触控 + 焦点环 */
+  .h5-back-wrap {
+    margin: 0 0 14px;
+  }
+  .h5-back-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--h5-tap-min);
+    padding: 6px 12px 6px 4px;
+    margin-left: -6px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--el-color-primary);
+    text-decoration: none;
+    border-radius: 10px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .h5-back-link:focus-visible {
+    outline: 2px solid var(--el-color-primary);
+    outline-offset: 2px;
+  }
+  .h5-back-link__icon {
+    display: inline-block;
+    font-size: 22px;
+    line-height: 1;
+    margin-right: 4px;
+    opacity: 0.88;
+    transform: translateY(-1px);
+  }
+
+  .h5-card-list__title a {
+    touch-action: manipulation;
+  }
+
+  /* 404 等：主按钮全宽（全局 CSS，不用 Vue :deep） */
+  .not-found-page .el-result__extra {
+    width: 100%;
+    max-width: 360px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .not-found-page .el-result__extra .el-button {
+    width: 100%;
+    min-height: var(--h5-tap-min);
+  }
+  .not-found-page .el-result__extra a {
+    display: block;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-tabbar,
+  .h5-card-list__item {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* 首屏列表请求中：小屏保留最小高度，减轻 v-loading 与空列表切换的跳动（CLS） */
+@media (max-width: 767px) {
+  .list-wrap.is-loading {
+    min-height: min(52vh, 560px);
+  }
+  .home.is-loading {
+    min-height: min(42vh, 480px);
+  }
+}

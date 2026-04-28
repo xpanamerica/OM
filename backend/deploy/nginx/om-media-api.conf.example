@@ -1,0 +1,51 @@
+# Nginx 反向代理示例：与 docker-compose.prod.yml（API 绑定 127.0.0.1:8000）配套
+# 部署：复制到 /etc/nginx/sites-available/ 并软链到 sites-enabled，nginx -t && systemctl reload nginx
+#
+# 请将 server_name 与 SSL 证书路径替换为实际域名；HTTPS 建议使用 certbot 签发 Let's Encrypt。
+
+upstream media_api_backend {
+    # 与 compose 中 api 端口映射一致
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name api.example.com;
+
+    # 若已上 HTTPS，可改为 443 ssl 并保留 80 仅做 ACME 或 301 跳转
+    # listen 443 ssl http2;
+    # ssl_certificate     /etc/letsencrypt/live/api.example.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
+
+    client_max_body_size 512m;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    # 置于受信反代之后时，由应用解析真实客户端 IP（须设 AUTH_TRUST_X_FORWARDED_FOR=true）
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+
+    location /health {
+        proxy_pass http://media_api_backend;
+    }
+
+    location /metrics {
+        proxy_pass http://media_api_backend;
+        # 建议：仅内网或 VPN 访问；公网请加 IP 白名单或关闭 EXPOSE_PROMETHEUS_METRICS
+        # allow 10.0.0.0/8;
+        # deny all;
+    }
+
+    location /api/ {
+        proxy_pass http://media_api_backend;
+    }
+
+    location / {
+        return 404;
+    }
+}

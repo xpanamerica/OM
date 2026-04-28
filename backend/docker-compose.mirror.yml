@@ -1,0 +1,14 @@
+# 可选：在 Docker Hub / 直连受限时，与主文件叠加使用（DaoCloud 公共镜像代理，不保证长期可用，可按需替换域名）。
+#   docker compose -f docker-compose.yml -f docker-compose.mirror.yml up -d --build
+# 若 dockerd 仍配置了无效 HTTP_PROXY，请求仍可能失败——请先修复 systemd 代理或安装 NOPASSWD 后运行 fix 脚本。
+services:
+  db:
+    image: docker.m.daocloud.io/library/postgres:16-alpine
+  redis:
+    image: docker.m.daocloud.io/library/redis:7-alpine
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: docker.m.daocloud.io/library/python:3.11-slim

@@ -1,0 +1,48 @@
+# 生产镜像：多阶段构建、非 root、无源码挂载假设（与 docker-compose.prod.yml 配套）
+# 构建：docker build -f Dockerfile.prod -t media-api:prod .
+#
+# 可通过 build-arg 覆盖基础镜像（内网/阿里云镜像加速等）
+ARG BASE_IMAGE=python:3.12-slim
+FROM ${BASE_IMAGE} AS builder
+
+WORKDIR /build
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --upgrade pip \
+    && pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+
+FROM ${BASE_IMAGE} AS runtime
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PORT=8000
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin appuser
+
+COPY --from=builder /wheels /wheels
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir /wheels/* \
+    && rm -rf /wheels
+
+COPY --chown=appuser:appuser . .
+RUN chmod +x scripts/docker-entrypoint-prod.sh scripts/backup_postgres.sh
+
+USER appuser
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=8s --start-period=90s --retries=3 \
+  CMD python3 -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=6); c=getattr(r,'status',r.getcode()); r.close(); raise SystemExit(0 if c==200 else 1)"
+
+ENTRYPOINT ["./scripts/docker-entrypoint-prod.sh"]

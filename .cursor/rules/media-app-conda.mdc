@@ -1,0 +1,23 @@
+---
+description: 本仓库终端/Python 使用 conda media_app，并规避 PhaseAGI 阻塞 Agent
+alwaysApply: true
+---
+
+# OM 仓库（原可为 OM_media）/ 恒频OM 产品后端：解释器与终端
+
+## 原因说明（给 Agent）
+
+若用户在 `~/.bashrc` 里配置了 **PhaseAGI** 等**交互式**初始化，Cursor **Agent 执行 `run_terminal_cmd`** 时往往会启动 **会加载 `~/.bashrc` 的 bash**。非交互管道里仍执行到密码提示，就会**一直卡住**，这与本仓库代码无关。
+
+## 在本仓库执行命令时的硬性偏好
+
+1. **Python 生态命令**（`python`、`pytest`、`pip`、`uvicorn`、`alembic`、`compileall`）：使用下面之一，**不要依赖**未经验证的裸 `python`（可能指向 PhaseAGI 包装器或错误环境）：
+
+   - `"${env:HOME}/software/anaconda3/envs/media_app/bin/python" -m pytest ...`（Linux/macOS 上 `env:HOME` 在 Cursor 里通常可用；若用户 Conda 不在 `~/software/anaconda3`，以工作区 `.vscode/settings.json` 里 `python.defaultInterpreterPath` 为准，对命令使用**同一路径**）。
+   - 或：`conda run -n media_app --no-capture-output python -m pytest ...`（`conda` 用 `python.condaPath` 同目录下的 `bin/conda`）。
+
+2. **Shell 一行里多命令**：在已设好 `SECRET_KEY`、`DATABASE_URL` 等的前提下，用 `&&` 串联；避免依赖 `source ~/.bashrc`。
+
+3. **用户侧根治（推荐）**：请用户把 PhaseAGI 包在「非 Cursor」分支里，见仓库内 **`backend/scripts/bashrc_phaseagi_guard.snippet.bash`** 注释说明；官方依据：在 `~/.bashrc` / `~/.zshrc` 里用 **`CURSOR_AGENT`** 等跳过重型初始化（Cursor 文档 *Agent tools → Terminal → Troubleshooting*）。
+
+4. **工作区已配置**：根目录 `.vscode/settings.json` 中 `terminal.integrated.defaultProfile.linux` 与 **`terminal.integrated.automationProfile.linux`** 均指向 **`media_app`** profile（`bash --noprofile --norc` + `conda activate media_app`），用于集成终端与自动化场景尽量不走 PhaseAGI。

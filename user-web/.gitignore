@@ -1,0 +1,16 @@
+node_modules
+dist
+*.local
+.env
+.env.*.local
+.env.production
+
+# Capacitor / 原生（保留工程文件，忽略本地构建与依赖缓存）
+android/app/build/
+android/.gradle/
+android/captures/
+android/local.properties
+ios/App/Pods/
+ios/App/build/
+ios/DerivedData/
+*.xcuserstate

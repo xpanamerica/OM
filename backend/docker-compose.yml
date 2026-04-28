@@ -1,0 +1,74 @@
+# 镜像可通过环境变量覆盖（见 .env.example）。默认使用 DaoCloud 对 Docker Hub 的公共代理，
+# 缓解直连 registry-1.docker.io 超时（context deadline exceeded）。
+#
+# Postgres 账号：db 与 api 共用同一组插值变量；改 POSTGRES_PASSWORD 时须同步改 DATABASE_URL
+#（若未显式设置 DATABASE_URL，则默认连接串会自动使用下方默认用户名/库名/口令）。
+services:
+  db:
+    image: ${MEDIA_POSTGRES_IMAGE:-docker.m.daocloud.io/library/postgres:16-alpine}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?在 backend/.env 中设置 POSTGRES_PASSWORD（强随机）；生成示例：bash scripts/init_local_compose_env.sh}
+      POSTGRES_DB: ${POSTGRES_DB:-videodb}
+    ports:
+      # 仅绑定回环，避免数据库端口在局域网接口上暴露（需远程调试时用 SSH 隧道或自建 override）
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: ${MEDIA_REDIS_IMAGE:-docker.m.daocloud.io/library/redis:7-alpine}
+    ports:
+      - "127.0.0.1:6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${MEDIA_PYTHON_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+    environment:
+      # 固定为本地开发，避免宿主机误设 ENVIRONMENT=staging 导致弱口令校验在启动阶段失败
+      ENVIRONMENT: local
+      # SECRET_KEY / 数据库口令不再提供内联弱默认：须由 backend/.env 或导出环境变量提供（见 scripts/init_local_compose_env.sh）
+      SECRET_KEY: "${SECRET_KEY:?在 backend/.env 中设置 SECRET_KEY（UTF-8 至少 32 字节）；生成：bash scripts/init_local_compose_env.sh}"
+      DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-videodb}}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      # 每 IP 每分钟登录 POST 次数上限；置于反代后且反代写 X-Forwarded-For 时可设 AUTH_TRUST_X_FORWARDED_FOR=true
+      AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE: "${AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE:-60}"
+      FIRST_SUPERUSER_EMAIL: "${FIRST_SUPERUSER_EMAIL:-admin@example.com}"
+      FIRST_SUPERUSER_USERNAME: "${FIRST_SUPERUSER_USERNAME:-admin}"
+      # 非 changeme，便于复制 compose 到 staging 前至少不会因默认密码触发配置拒绝（仍须在真环境替换）
+      FIRST_SUPERUSER_PASSWORD: "${FIRST_SUPERUSER_PASSWORD:-local-docker-default-admin-password-change-in-prod!!}"
+    ports:
+      # 与 db/redis 一致仅绑定回环，避免 API 在局域网网卡上裸暴露
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4); c=getattr(r,'status',r.getcode()); r.close(); exit(0 if c==200 else 1)\""]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+
+volumes:
+  pgdata:

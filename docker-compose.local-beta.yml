@@ -1,0 +1,90 @@
+# =============================================================================
+# 本机 Beta 部署（临时服务器、小范围外测）
+# =============================================================================
+# - PostgreSQL / Redis 仅绑定 127.0.0.1，不对局域网 0.0.0.0 暴露。
+# - 默认将宿主机端口设为 15432 / 16379，避免与本机已在跑的 backend/docker-compose（5432/6379）冲突；
+#   api 仍通过服务名 db:5432、redis:6379 访问，勿改 DATABASE_URL 里的容器端口。
+# - API 仅 expose:8000，宿主机不经 compose 映射；仅 Docker 内 Nginx → api。
+# - 对外只应暴露 Nginx（8080 用户站、8081 管理端）；/api 流量为同源 /api/v1 反代。
+# - 视频：可本机磁盘成片（LOCAL_VIDEO_STORAGE_DIR）或阿里云 VOD；附件走 ATTACHMENT_STORAGE_DIR。
+# - api 挂载 ./backend:/app 时，默认 data/local_videos、data/attachments 落在仓库 backend/data/ 下，重启不丢。
+#
+# 使用（在仓库根目录）：
+#   1) cp backend/.env.local-beta.example backend/.env.local-beta 并填写
+#   2) 用户端/管理端：cp .env.production.example .env.production 后分别 npm ci && npm run build
+#   3) docker compose --env-file ./backend/.env.local-beta -f docker-compose.local-beta.yml up -d --build
+#
+# 完整步骤见：deploy/local-beta/README.md
+#
+name: om-media-local-beta
+
+services:
+  db:
+    image: ${MEDIA_POSTGRES_IMAGE:-docker.m.daocloud.io/library/postgres:16-alpine}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?在 backend/.env.local-beta 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-videodb}
+    ports:
+      - "127.0.0.1:${BETA_BIND_PG_PORT:-15432}:5432"
+    volumes:
+      - local_beta_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: ${MEDIA_REDIS_IMAGE:-docker.m.daocloud.io/library/redis:7-alpine}
+    ports:
+      - "127.0.0.1:${BETA_BIND_REDIS_PORT:-16379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${MEDIA_PYTHON_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+    env_file:
+      - ./backend/.env.local-beta
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4); c=getattr(r,'status',r.getcode()); r.close(); exit(0 if c==200 else 1)\""]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 120s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+
+  nginx:
+    image: ${MEDIA_NGINX_IMAGE:-docker.m.daocloud.io/library/nginx:1.27-alpine}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${BETA_USER_WEB_PORT:-8080}:8080"
+      - "127.0.0.1:${BETA_ADMIN_WEB_PORT:-8081}:8081"
+    volumes:
+      - ./user-web/dist:/usr/share/nginx/html/user:ro
+      - ./admin-web/dist:/usr/share/nginx/html/admin:ro
+      - ./deploy/local-beta/nginx/local-beta.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+
+volumes:
+  local_beta_pgdata:

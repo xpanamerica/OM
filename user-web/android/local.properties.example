@@ -1,0 +1,11 @@
+# 复制本文件为 android/local.properties（勿提交 Git），并填写本机 Android SDK 路径。
+# Android Studio 通常会自动生成 local.properties；若打开工程报错找不到 SDK，可手动创建。
+#
+# macOS 示例：
+# sdk.dir=/Users/你的用户名/Library/Android/sdk
+# Linux 示例：
+# sdk.dir=/home/你的用户名/Android/Sdk
+# Windows 示例（注意转义反斜杠）：
+# sdk.dir=C\:\\Users\\你的用户名\\AppData\\Local\\Android\\Sdk
+
+sdk.dir=

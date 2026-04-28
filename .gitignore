@@ -1,0 +1,12 @@
+# 仓库根：与 backend/.gitignore 互补（在根打开工作区时忽略敏感/本地文件）
+.env
+.env.local
+.env.*.local
+*.pem
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*~
+file:pytest_*
+.pytest_cache/

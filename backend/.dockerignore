@@ -1,0 +1,26 @@
+# 缩小构建上下文、加速 docker build、减少无关文件进入镜像层（勿忽略 requirements / app / alembic）
+tests/
+docs/
+.cursor/
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.hypothesis
+.venv
+venv
+*.egg-info
+dist
+build
+.git
+.gitignore
+*.md
+.env
+.env.*
+*.sqlite
+*.db
+htmlcov
+.coverage
+coverage.xml

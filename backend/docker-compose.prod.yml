@@ -1,0 +1,93 @@
+# 单机生产编排（ECS / 自建 Linux）：PostgreSQL + Redis + API（Gunicorn+Uvicorn）
+# 使用方式见 docs/PRODUCTION_DEPLOYMENT.md
+#
+# 准备：在 backend 目录复制 deploy/env.production.example 为 .env.production 并填写密钥与口令
+# 启动：docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+name: om-media-prod
+
+services:
+  db:
+    image: ${MEDIA_POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:-videodb}
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  redis:
+    image: ${MEDIA_REDIS_IMAGE:-redis:7-alpine}
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata_prod:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        BASE_IMAGE: ${MEDIA_PYTHON_IMAGE:-python:3.12-slim}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: production
+      SECRET_KEY: ${SECRET_KEY:?}
+      DATABASE_URL: ${DATABASE_URL:?}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      LOG_FILE_DIR: ${LOG_FILE_DIR:-/var/log/media-api}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AUTH_TRUST_X_FORWARDED_FOR: ${AUTH_TRUST_X_FORWARDED_FOR:-true}
+      AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE: ${AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE:-60}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+      PORT: "8000"
+      FIRST_SUPERUSER_EMAIL: ${FIRST_SUPERUSER_EMAIL:-}
+      FIRST_SUPERUSER_USERNAME: ${FIRST_SUPERUSER_USERNAME:-}
+      FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD:-}
+    volumes:
+      # 与 LOG_FILE_DIR 一致；宿主机目录须对容器用户 uid=10001 可写（见部署文档）
+      - ./logs:/var/log/media-api
+    ports:
+      # 仅本机回环暴露，由宿主机 Nginx 反代；若仅内网访问可改为 8000:8000
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=6); c=getattr(r,'status',r.getcode()); r.close(); exit(0 if c==200 else 1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata_prod:
+  redisdata_prod:

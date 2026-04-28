@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "恒频OM",
+    "slug": "om-media-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "ommedia",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ommedia.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#09090b"
+      },
+      "package": "com.ommedia.app",
+      "usesCleartextTraffic": true
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

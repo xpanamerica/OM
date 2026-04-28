@@ -27,8 +27,7 @@ html {
   #app {
     overscroll-behavior-x: none;
   }
-  #app,
-  #app * {
+  #app {
     max-width: 100%;
   }
   #app .main-layout,

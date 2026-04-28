@@ -86,6 +86,14 @@ function messagePreview(raw: string | null | undefined) {
   } catch {
     /* plain text */
   }
+  const textFragment = raw.match(/"text"\s*:\s*"((?:\\.|[^"\\])*)"/)?.[1];
+  if (textFragment) {
+    try {
+      return JSON.parse(`"${textFragment}"`) as string;
+    } catch {
+      return textFragment;
+    }
+  }
   return raw.trim() || "新消息";
 }
 
@@ -279,9 +287,11 @@ onMounted(() => void load());
 <style scoped>
 .messages-page {
   min-height: 100%;
-  margin: 0 -10px;
-  padding: 8px 12px 24px;
-  max-width: calc(100vw - 0px);
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 8px 0 24px;
+  box-sizing: border-box;
   overflow-x: hidden;
   background:
     radial-gradient(circle at 16% -10%, rgba(34, 211, 238, 0.28), transparent 34%),
@@ -411,6 +421,8 @@ onMounted(() => void load());
 .message-list {
   display: grid;
   gap: 2px;
+  min-width: 0;
+  width: 100%;
 }
 .request-list {
   display: grid;
@@ -449,7 +461,6 @@ onMounted(() => void load());
 .discover-row {
   width: 100%;
   min-width: 0;
-  display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 0;
@@ -461,6 +472,15 @@ onMounted(() => void load());
   text-decoration: none;
   cursor: pointer;
   font: inherit;
+}
+.message-row {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 42px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.discover-row {
+  display: flex;
 }
 .row-avatar,
 .discover-avatar {
@@ -500,10 +520,9 @@ onMounted(() => void load());
   font-size: 12px;
 }
 .row-side {
-  width: 48px;
-  min-width: 48px;
-  max-width: 48px;
-  flex: 0 0 48px;
+  width: 42px;
+  min-width: 0;
+  max-width: 42px;
   display: grid;
   justify-items: end;
   gap: 8px;

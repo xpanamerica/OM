@@ -190,7 +190,7 @@ export function DiscoverScreen(_props: Props) {
       <View style={styles.discoverHero}>
         <View pointerEvents="none" style={styles.heroOrb} />
         <View style={styles.heroHead}>
-          <Text style={styles.heroTitle}>发现</Text>
+          <Text style={styles.heroTitle}>Discovery</Text>
           <Pressable style={styles.heroMode} onPress={() => setModePanelOpen(true)}>
             <Text style={styles.heroModeLabel}>算法模式</Text>
             <Text style={styles.heroModeText}>{activeModeTitle}</Text>
@@ -428,20 +428,25 @@ const styles = StyleSheet.create({
     borderColor: "rgba(103,232,249,0.18)",
   },
   heroHead: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    gap: 12,
+    position: "relative",
+    minHeight: 66,
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 12,
   },
   heroTitle: {
     color: colors.text,
-    fontSize: 38,
+    fontSize: 34,
     lineHeight: 42,
     fontWeight: "900",
     letterSpacing: -2,
+    paddingHorizontal: 116,
+    textAlign: "center",
   },
   heroMode: {
+    position: "absolute",
+    right: 0,
+    top: 0,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(103,232,249,0.24)",
     borderRadius: 16,

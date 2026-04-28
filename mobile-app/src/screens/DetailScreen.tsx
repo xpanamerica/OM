@@ -42,8 +42,26 @@ export function DetailScreen({ navigation, route }: Props) {
       <>
         <Text style={styles.title}>{v.title}</Text>
         <Text style={styles.meta}>
-          {v.views_count} 播放 · {v.likes_count} 赞 · {v.status}
+          {v.views_count} 播放 · {v.likes_count} 赞 · {v.favorites_count} 收藏 · {v.comments_count ?? 0} 评论 · {v.status}
         </Text>
+        <View style={styles.stats}>
+          <View style={styles.statBox}>
+            <Text style={styles.statNum}>{v.views_count}</Text>
+            <Text style={styles.statLabel}>播放</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statNum}>{v.likes_count}</Text>
+            <Text style={styles.statLabel}>点赞</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statNum}>{v.favorites_count}</Text>
+            <Text style={styles.statLabel}>收藏</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statNum}>{v.comments_count ?? 0}</Text>
+            <Text style={styles.statLabel}>评论</Text>
+          </View>
+        </View>
         <Pressable style={styles.authorBtn} onPress={() => navigation.navigate("UserProfile", { id: v.author_id })}>
           <Text style={styles.authorTxt}>查看作者主页</Text>
         </Pressable>
@@ -97,6 +115,18 @@ const styles = StyleSheet.create({
   center: { padding: 40, alignItems: "center" },
   title: { color: colors.text, fontSize: 20, fontWeight: "800" },
   meta: { color: colors.textMuted, marginTop: 8, fontSize: 13 },
+  stats: { flexDirection: "row", gap: 8, marginTop: 14 },
+  statBox: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  statNum: { color: colors.text, fontSize: 18, fontWeight: "900" },
+  statLabel: { color: colors.textMuted, marginTop: 2, fontSize: 11, fontWeight: "700" },
   authorBtn: { alignSelf: "flex-start", marginTop: 10, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, backgroundColor: colors.surface },
   authorTxt: { color: colors.accent, fontWeight: "800", fontSize: 13 },
   desc: { color: colors.text, marginTop: 16, lineHeight: 22, fontSize: 15 },

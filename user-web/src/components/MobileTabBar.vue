@@ -132,6 +132,14 @@ function ariaPage(on: boolean): "page" | undefined {
   min-height: calc(var(--h5-tabbar-height) + env(safe-area-inset-bottom, 0px));
 }
 
+.m-tabbar--native {
+  border-top-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.78), rgba(2, 6, 23, 0.94));
+  color: var(--native-text-secondary, #a1a1aa);
+  box-shadow: 0 -16px 36px rgba(0, 0, 0, 0.34);
+}
+
 .m-tabbar__side {
   flex: 1;
   display: flex;
@@ -153,7 +161,7 @@ function ariaPage(on: boolean): "page" | undefined {
   width: 52px;
   height: 44px;
   border-radius: 14px;
-  background: var(--native-accent);
+  background: var(--native-accent, #22d3ee);
   color: #fff;
   display: flex;
   align-items: center;
@@ -204,7 +212,7 @@ function ariaPage(on: boolean): "page" | undefined {
 }
 
 .m-tab--on {
-  color: var(--native-accent);
+  color: var(--native-accent, #22d3ee);
   font-weight: 800;
 }
 

@@ -45,8 +45,6 @@ const commentLoading = ref(false);
 const likesCount = ref(0);
 const favCount = ref(0);
 
-const attachments = ref<videosApi.VideoAttachmentOut[]>([]);
-const attachmentsLoading = ref(false);
 const attachmentUploading = ref(false);
 const attachDetailInputRef = ref<HTMLInputElement | null>(null);
 const localVideoDetailInputRef = ref<HTMLInputElement | null>(null);
@@ -287,11 +285,6 @@ function formatDuration(seconds: number | null | undefined): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
 function handleEditCommand(command: string) {
   if (command === "cover") coverDetailInputRef.value?.click();
   if (command === "local-video") localVideoDetailInputRef.value?.click();
@@ -390,15 +383,6 @@ async function removeComment(c: videosApi.CommentOut) {
   }
 }
 
-async function downloadAttachment(row: videosApi.VideoAttachmentOut) {
-  try {
-    const blob = await videosApi.downloadVideoAttachmentBlob(videoId.value, row.id);
-    videosApi.triggerBlobDownload(blob, row.original_filename);
-  } catch (e) {
-    ElMessage.error(formatApiError(e));
-  }
-}
-
 async function onAddAttachmentDetail(ev: Event) {
   const input = ev.target as HTMLInputElement;
   const files = input.files ? Array.from(input.files) : [];
@@ -410,7 +394,6 @@ async function onAddAttachmentDetail(ev: Event) {
       await videosApi.uploadVideoAttachment(video.value.id, f);
     }
     ElMessage.success(files.length === 1 ? "已上传附件" : `已上传 ${files.length} 个附件`);
-    attachments.value = await videosApi.listVideoAttachments(videoId.value);
   } catch (e) {
     ElMessage.error(formatApiError(e));
   } finally {
@@ -481,18 +464,6 @@ async function loadAll() {
       my.value = null;
     }
 
-    attachments.value = [];
-    if (auth.isLoggedIn && auth.user?.id === v.author_id) {
-      attachmentsLoading.value = true;
-      try {
-        attachments.value = await videosApi.listVideoAttachments(videoId.value);
-      } catch {
-        attachments.value = [];
-      } finally {
-        attachmentsLoading.value = false;
-      }
-    }
-
     void cm;
   } catch (e) {
     video.value = null;
@@ -540,9 +511,24 @@ onBeforeUnmount(() => {
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="cover">上传或替换封面</el-dropdown-item>
-                <el-dropdown-item command="local-video">上传或替换本站视频</el-dropdown-item>
-                <el-dropdown-item command="attachment">上传稿件附件</el-dropdown-item>
+                <el-dropdown-item command="cover">
+                  <span class="edit-menu-item">
+                    <b>更换封面</b>
+                    <small>用于首页、列表与播放前视觉</small>
+                  </span>
+                </el-dropdown-item>
+                <el-dropdown-item command="local-video">
+                  <span class="edit-menu-item">
+                    <b>替换视频</b>
+                    <small>上传本站视频，发布后可直接播放</small>
+                  </span>
+                </el-dropdown-item>
+                <el-dropdown-item command="attachment">
+                  <span class="edit-menu-item">
+                    <b>上传附件</b>
+                    <small>图片、PDF、Word 等作者资料</small>
+                  </span>
+                </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -597,10 +583,10 @@ onBeforeUnmount(() => {
                 <img v-if="coverUrl" :src="coverUrl" alt="" />
                 <span v-else class="cover-fallback">{{ titleInitial }}</span>
                 <div class="preview-overlay">
-                  <b>视频预览</b>
-                  <small>{{ canPreviewVideo ? "加载播放器后可预览/播放" : "当前状态暂不可播放" }}</small>
+                  <b>视频播放</b>
+                  <small>{{ canPreviewVideo ? "点击后加载播放器并开始播放" : "当前状态暂不可播放" }}</small>
                   <el-button type="primary" round :loading="playLoading" :disabled="!canPreviewVideo" @click="startPlayback">
-                    加载播放器
+                    立即播放
                   </el-button>
                 </div>
               </div>
@@ -614,22 +600,6 @@ onBeforeUnmount(() => {
                   <small>稿件通过审核并发布后将开放播放。</small>
                 </div>
               </div>
-            </div>
-          </div>
-
-          <aside class="detail-panel">
-            <div class="status-row">
-              <span class="status-pill">{{ videoStatusLabel || "未知状态" }}</span>
-              <span>{{ formatDuration(video.duration_seconds) }}</span>
-            </div>
-            <h1>{{ video.title ?? "（无标题）" }}</h1>
-            <p v-if="video.description" class="desc">{{ video.description }}</p>
-            <p v-else class="desc desc--muted">作者还没有填写简介。</p>
-            <div class="meta-line">
-              <RouterLink class="author-link" :to="{ name: 'user-profile', params: { id: video.author_id } }">
-                作者主页
-              </RouterLink>
-              <span>发布于 {{ formatDate(video.published_at) }}</span>
             </div>
             <div class="stat-grid" aria-label="播放与互动信息">
               <span>
@@ -648,6 +618,22 @@ onBeforeUnmount(() => {
                 <b>{{ formatCount(commentTotal) }}</b>
                 <small>评论</small>
               </span>
+            </div>
+          </div>
+
+          <aside class="detail-panel">
+            <div class="status-row">
+              <span class="status-pill">{{ videoStatusLabel || "未知状态" }}</span>
+              <span>{{ formatDuration(video.duration_seconds) }}</span>
+            </div>
+            <h1>{{ video.title ?? "（无标题）" }}</h1>
+            <p v-if="video.description" class="desc">{{ video.description }}</p>
+            <p v-else class="desc desc--muted">作者还没有填写简介。</p>
+            <div class="meta-line">
+              <RouterLink class="author-link" :to="{ name: 'user-profile', params: { id: video.author_id } }">
+                作者主页
+              </RouterLink>
+              <span>发布于 {{ formatDate(video.published_at) }}</span>
             </div>
             <div class="actions hero-actions" role="group" aria-label="点赞与收藏">
               <el-button
@@ -721,26 +707,6 @@ onBeforeUnmount(() => {
         </el-space>
       </div>
 
-      <div v-if="isVideoAuthor" v-loading="attachmentsLoading" class="block asset-panel">
-        <div class="asset-head">
-          <div>
-            <h3>稿件素材</h3>
-            <p class="hint">封面、本站视频和附件已收进右上角「编辑」菜单；附件仅作者可见与管理。</p>
-          </div>
-          <el-button type="primary" plain :loading="attachmentUploading" @click="attachDetailInputRef?.click()">
-            添加附件
-          </el-button>
-        </div>
-        <el-empty v-if="!attachments.length" description="暂无附件" :image-size="72" style="margin-top: 12px" />
-        <ul v-else class="att-list">
-          <li v-for="a in attachments" :key="a.id" class="att-row">
-            <span class="att-name">{{ a.original_filename }}</span>
-            <span class="att-meta">{{ formatFileSize(a.size_bytes) }}</span>
-            <el-button type="primary" link @click="downloadAttachment(a)">下载</el-button>
-          </li>
-        </ul>
-      </div>
-
       <div class="block">
         <h3>评论（{{ commentTotal }}）</h3>
         <el-input
@@ -748,8 +714,6 @@ onBeforeUnmount(() => {
           v-model="newComment"
           type="textarea"
           :rows="3"
-          maxlength="2000"
-          show-word-limit
           placeholder="写评论…"
           :disabled="!canCommentOnThisVideo"
           style="margin-bottom: 8px"
@@ -806,12 +770,14 @@ onBeforeUnmount(() => {
 .video-detail-shell {
   min-height: calc(100dvh - 72px);
   margin: -20px calc(50% - 50vw) -24px;
-  padding: 24px max(20px, calc(50vw - 560px)) 48px;
+  padding: 18px max(16px, calc(50vw - 560px)) calc(92px + env(safe-area-inset-bottom, 0px));
   background:
     radial-gradient(circle at 12% -8%, rgba(34, 211, 238, 0.18), transparent 30%),
     radial-gradient(circle at 92% 10%, rgba(139, 92, 246, 0.18), transparent 34%),
     linear-gradient(180deg, #070b16 0%, #050506 58%, #081018 100%);
   color: #f8fafc;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
 }
 
 .video-detail-page {
@@ -823,7 +789,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .detail-nav :deep(a) {
@@ -833,20 +799,23 @@ onBeforeUnmount(() => {
 }
 
 .edit-trigger {
-  min-width: 92px;
+  min-width: 88px;
   border: 0;
   border-radius: 999px;
-  background: linear-gradient(135deg, #22d3ee, #a78bfa);
-  color: #05111f;
+  background:
+    linear-gradient(135deg, rgba(34, 211, 238, 0.96), rgba(167, 139, 250, 0.95));
+  color: #04111f;
   font-weight: 900;
   box-shadow: 0 16px 36px rgba(34, 211, 238, 0.26);
 }
 
 .detail-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
-  gap: 18px;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1.18fr) minmax(300px, 0.82fr);
+  gap: 14px;
+  align-items: start;
+  max-width: 1120px;
+  margin: 0 auto;
 }
 
 .preview-card,
@@ -862,17 +831,19 @@ onBeforeUnmount(() => {
 }
 
 .preview-card {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  border-radius: 30px;
+  border-radius: 26px;
   min-width: 0;
 }
 
 .detail-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  border-radius: 30px;
-  padding: 22px;
+  gap: 12px;
+  border-radius: 24px;
+  padding: 18px;
 }
 
 .status-row,
@@ -901,7 +872,7 @@ onBeforeUnmount(() => {
 .detail-panel h1 {
   margin: 0;
   color: #f8fafc;
-  font-size: clamp(28px, 5vw, 52px);
+  font-size: clamp(26px, 4.2vw, 44px);
   line-height: 1.02;
   font-weight: 950;
   letter-spacing: -0.07em;
@@ -933,16 +904,21 @@ onBeforeUnmount(() => {
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 4px;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(2, 6, 23, 0.62);
 }
 
 .stat-grid span {
   min-width: 0;
-  padding: 12px 10px;
+  padding: 9px 6px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 18px;
-  background: rgba(15, 23, 42, 0.62);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.09), transparent 50%),
+    rgba(15, 23, 42, 0.58);
+  text-align: center;
 }
 
 .stat-grid b,
@@ -953,13 +929,14 @@ onBeforeUnmount(() => {
 .stat-grid b {
   color: #f8fafc;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 20px;
+  font-size: 17px;
+  line-height: 1.1;
 }
 
 .stat-grid small {
   margin-top: 2px;
   color: #94a3b8;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .actions {
@@ -968,15 +945,39 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.hero-actions {
+  justify-content: center;
+}
+
 .hero-actions .act-btn {
-  flex: 1 1 0;
+  flex: 0 1 220px;
+  width: 100%;
+  max-width: 220px;
+  margin: 0 !important;
 }
 
 .act-btn {
-  min-height: 46px;
-  padding: 0 20px;
+  min-height: 42px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
   font-weight: 800;
+}
+
+.hero-actions :deep(.el-button.act-btn) {
+  border-color: rgba(103, 232, 249, 0.22);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.86));
+  color: #e2e8f0;
+}
+
+.hero-actions :deep(.el-button.act-btn.el-button--primary),
+.hero-actions :deep(.el-button.act-btn.el-button--warning) {
+  border-color: rgba(34, 211, 238, 0.42);
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.92), rgba(167, 139, 250, 0.88));
+  color: #04111f;
 }
 
 .act-btn__label {
@@ -1009,13 +1010,14 @@ onBeforeUnmount(() => {
 }
 
 .hero-player {
-  min-height: min(68dvh, 620px);
+  min-height: 0;
   aspect-ratio: 16 / 9;
 }
 
 .player-shell--active {
   aspect-ratio: auto;
   min-height: 0;
+  height: auto;
   background: #000;
 }
 
@@ -1088,13 +1090,15 @@ onBeforeUnmount(() => {
 }
 
 .workflow-alert {
-  margin-top: 16px;
+  max-width: 1120px;
+  margin: 12px auto 0;
 }
 
 .block {
-  margin-top: 18px;
+  max-width: 1120px;
+  margin: 14px auto 0;
   border-radius: 24px;
-  padding: 18px;
+  padding: 16px;
 }
 
 .block h3 {
@@ -1201,15 +1205,24 @@ onBeforeUnmount(() => {
 
 :global(.video-edit-menu) {
   border: 1px solid rgba(103, 232, 249, 0.16) !important;
-  background: rgba(2, 6, 23, 0.96) !important;
+  border-radius: 18px !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.16), transparent 42%),
+    rgba(2, 6, 23, 0.96) !important;
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.42) !important;
+  overflow: hidden;
 }
 
 :global(.video-edit-menu .el-dropdown-menu) {
   background: transparent;
+  padding: 6px;
 }
 
 :global(.video-edit-menu .el-dropdown-menu__item) {
+  min-width: 220px;
+  min-height: 58px;
+  padding: 8px 10px;
+  border-radius: 12px;
   color: #e2e8f0;
 }
 
@@ -1219,10 +1232,27 @@ onBeforeUnmount(() => {
   color: #67e8f9;
 }
 
+:global(.video-edit-menu .edit-menu-item) {
+  display: grid;
+  gap: 3px;
+  line-height: 1.2;
+}
+
+:global(.video-edit-menu .edit-menu-item b) {
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+:global(.video-edit-menu .edit-menu-item small) {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
 @media (max-width: 900px) {
   .video-detail-shell {
     margin: 0 -10px -10px;
-    padding: 14px 10px 28px;
+    padding: 10px 10px calc(92px + env(safe-area-inset-bottom, 0px));
   }
 
   .detail-hero {
@@ -1232,17 +1262,18 @@ onBeforeUnmount(() => {
   .detail-panel,
   .preview-card,
   .block {
-    border-radius: 22px;
+    border-radius: 20px;
   }
 
   .hero-player {
-    min-height: 220px;
+    min-height: 0;
   }
 }
 
 @media (max-width: 560px) {
   .detail-nav {
     align-items: flex-start;
+    padding: 0 2px;
   }
 
   .detail-panel {
@@ -1250,11 +1281,27 @@ onBeforeUnmount(() => {
   }
 
   .stat-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .stat-grid span {
+    padding: 8px 3px;
+    border-radius: 12px;
+  }
+
+  .stat-grid b {
+    font-size: 16px;
+  }
+
+  .stat-grid small {
+    font-size: 10px;
   }
 
   .actions .act-btn {
-    flex: 1 1 calc(50% - 6px);
+    flex: 1 1 0;
+    max-width: none;
     min-width: 0;
   }
 

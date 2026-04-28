@@ -329,10 +329,10 @@ onMounted(() => {
 .discover-hero__head {
   position: relative;
   z-index: 1;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: start;
-  gap: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
   margin-bottom: 12px;
 }
 
@@ -343,8 +343,8 @@ onMounted(() => {
   line-height: 1;
   font-weight: 950;
   letter-spacing: -0.08em;
-  grid-column: 2;
-  text-align: center;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .discover-hero__head span {
@@ -356,14 +356,12 @@ onMounted(() => {
 }
 
 .mode-chip {
-  grid-column: 3;
-  justify-self: end;
   flex-shrink: 0;
   display: grid;
-  gap: 2px;
+  gap: 4px;
   border: 1px solid rgba(103, 232, 249, 0.22);
   border-radius: 16px;
-  padding: 8px 10px;
+  padding: 10px 14px;
   background: rgba(2, 6, 23, 0.62);
   color: #e0f2fe;
   text-align: left;
@@ -372,14 +370,14 @@ onMounted(() => {
 
 .mode-chip span {
   color: #67e8f9;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.08em;
 }
 
 .mode-chip b {
   color: #f8fafc;
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 950;
 }
 

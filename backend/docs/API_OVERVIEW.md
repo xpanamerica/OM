@@ -17,7 +17,7 @@
 | POST | `P/auth/login` | `application/x-www-form-urlencoded`：`username`（可填用户名或邮箱）、`password`；200 返回 `access_token`、`token_type` |
 | POST | `P/auth/forgot-password` | **可匿名**；JSON：`email`；防枚举固定 200 文案；启用限流且超配额时 **429**，体为 `{"success":false,"message":"请求过于频繁，请稍后再试。"}` |
 
-认证限流（`AUTH_RATE_LIMIT_ENABLED=true` 且 Redis 可用时多实例一致）：默认配额为注册每 IP 每分钟 3 / 每小时 10；登录每 IP 每分钟 5；同一登录标识 15 分钟内失败 5 次后拒绝；忘记密码每 IP 每小时 3、每邮箱每小时 2（均可经环境变量覆盖，见 `app/core/config.py`）。进程内曾判定 Redis 不可达时，可按 `AUTH_RATE_LIMIT_REDIS_STALE_REPROBE_SECONDS` 周期性重探测。超限事件写入 `security_events` 表。
+认证限流（`AUTH_RATE_LIMIT_ENABLED=true` 且 Redis 可用时多实例一致）：默认配额为注册每 IP 每分钟 3 / 每小时 10；登录每 IP 每分钟 5；同一登录标识 15 分钟内失败 5 次后拒绝；忘记密码每 IP 每小时 3、每邮箱每小时 2。各维度滑动窗口秒数（如 `AUTH_RATE_LIMIT_REGISTER_MINUTE_WINDOW_SECONDS`）与配额均可经环境变量覆盖（见 `app/core/config.py`）。Redis 路径使用 ``SCRIPT LOAD`` + ``EVALSHA``（键前缀 ``rl:auth:v2:``）；进程内曾判定 Redis 不可达时，可按 `AUTH_RATE_LIMIT_REDIS_STALE_REPROBE_SECONDS` 周期性重探测。可选真 Redis 集成测试：`RUN_AUTH_RATE_LIMIT_REDIS=1 pytest tests/integration/test_auth_rate_limit_redis.py`。超限事件写入 `security_events` 表。
 
 ---
 

@@ -75,6 +75,7 @@ from app.core.auth_rate_limit import (
     purge_auth_rate_limit_redis_keys_for_tests,
     reset_auth_rate_limit_memory_for_tests,
     reset_auth_rate_limit_redis_probe_state_for_tests,
+    reset_auth_rate_limit_script_shas_for_tests,
 )
 from app.core.search_rate_limit import reset_search_rate_limit_state_for_tests
 
@@ -96,6 +97,7 @@ def _reset_auth_rate_limit_between_tests():
     purge_vod_refresh_upload_rate_limit_redis_keys_for_tests()
     reset_auth_rate_limit_memory_for_tests()
     reset_auth_rate_limit_redis_probe_state_for_tests()
+    reset_auth_rate_limit_script_shas_for_tests()
     purge_auth_rate_limit_redis_keys_for_tests()
     reset_search_rate_limit_state_for_tests()
     reset_comment_rate_limit_state()
@@ -113,6 +115,7 @@ def _reset_auth_rate_limit_between_tests():
     purge_vod_refresh_upload_rate_limit_redis_keys_for_tests()
     reset_auth_rate_limit_memory_for_tests()
     reset_auth_rate_limit_redis_probe_state_for_tests()
+    reset_auth_rate_limit_script_shas_for_tests()
     purge_auth_rate_limit_redis_keys_for_tests()
     reset_search_rate_limit_state_for_tests()
     reset_comment_rate_limit_state()

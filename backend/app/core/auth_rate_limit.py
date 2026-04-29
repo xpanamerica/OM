@@ -1,10 +1,6 @@
-"""认证相关端点限流：Redis 优先，可回退进程内滑动窗口。
+"""认证相关端点限流：Redis 优先（SCRIPT LOAD + EVALSHA），可回退进程内滑动窗口。
 
-配额由 ``Settings`` 配置（环境变量），默认与产品规格一致：
-注册每 IP 每分钟 / 每小时、登录每 IP 每分钟、账号失败窗口、忘记密码每 IP / 每邮箱每小时。
-
-Redis 曾判定不可达时，可按 ``AUTH_RATE_LIMIT_REDIS_STALE_REPROBE_SECONDS`` 周期性重探测；
-单次命令失败会刷新全局 Redis 可达性缓存，避免长时间误用陈旧结论。
+配额与滑动窗口秒数均由 ``Settings`` 配置；Redis 键包含窗口长度，避免调参后与旧计数混用。
 """
 
 from __future__ import annotations
@@ -17,18 +13,20 @@ import uuid
 from collections import defaultdict, deque
 from threading import Lock
 
-from redis.exceptions import RedisError
+from redis.exceptions import NoScriptError, RedisError
 
 from app.core.config import settings
 from app.infrastructure.redis import get_redis, ping_redis_and_refresh_cache, redis_available_cached
 
 logger = logging.getLogger(__name__)
 
-RL_PREFIX = "rl:auth:v1"
+RL_PREFIX = "rl:auth:v2"
 
 _lock = Lock()
 _stale_probe_lock = Lock()
+_script_init_lock = Lock()
 _last_redis_reprobe_monotonic: float = 0.0
+_SCRIPT_SHAS: dict[str, str] = {}
 
 _mem_register_min: dict[str, deque[float]] = defaultdict(deque)
 _mem_register_hour: dict[str, deque[float]] = defaultdict(deque)
@@ -136,6 +134,34 @@ return {1, 0, 0}
 """
 
 
+def _eval_sha_with_noscript_retry(
+    r,
+    *,
+    cache_key: str,
+    source: str,
+    numkeys: int,
+    keys_and_argv: list[object],
+) -> object:
+    """EVALSHA，遇 ``NOSCRIPT`` 时重新 ``SCRIPT LOAD`` 再执行。"""
+    if len(keys_and_argv) < numkeys:
+        raise ValueError("keys_and_argv 长度须 >= numkeys")
+    keys = [str(x) for x in keys_and_argv[:numkeys]]
+    argv = [str(x) for x in keys_and_argv[numkeys:]]
+    with _script_init_lock:
+        sha = _SCRIPT_SHAS.get(cache_key)
+        if sha is None:
+            sha = r.script_load(source)
+            _SCRIPT_SHAS[cache_key] = sha
+    try:
+        return r.evalsha(sha, numkeys, *keys, *argv)
+    except NoScriptError:
+        with _script_init_lock:
+            _SCRIPT_SHAS.pop(cache_key, None)
+            sha = r.script_load(source)
+            _SCRIPT_SHAS[cache_key] = sha
+        return r.evalsha(sha, numkeys, *keys, *argv)
+
+
 def _ip_bucket(ip: str) -> str:
     return hashlib.sha256(ip.encode("utf-8", errors="replace")).hexdigest()[:40]
 
@@ -180,13 +206,19 @@ def reset_auth_rate_limit_redis_probe_state_for_tests() -> None:
         _last_redis_reprobe_monotonic = 0.0
 
 
+def reset_auth_rate_limit_script_shas_for_tests() -> None:
+    """单测隔离：清空已 ``SCRIPT LOAD`` 的 SHA 缓存。"""
+    with _script_init_lock:
+        _SCRIPT_SHAS.clear()
+
+
 def purge_auth_rate_limit_redis_keys_for_tests() -> None:
-    if not redis_available_cached():
-        return
+    """删除 ``rl:auth:v2:*`` 及历史 ``rl:auth:v1:*``；不依赖 ``redis_available_cached``。"""
     try:
         r = get_redis()
-        for k in r.scan_iter(match=f"{RL_PREFIX}:*", count=200):
-            r.delete(k)
+        for pat in (f"{RL_PREFIX}:*", "rl:auth:v1:*"):
+            for k in r.scan_iter(match=pat, count=200):
+                r.delete(k)
     except Exception:
         pass
 
@@ -222,8 +254,9 @@ def _login_account_key(login_identifier: str) -> str:
 def _mem_try_dual_register(ip_tok: str) -> tuple[bool, int, str | None]:
     lim_m = settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE
     lim_h = settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR
+    w1 = float(settings.AUTH_RATE_LIMIT_REGISTER_MINUTE_WINDOW_SECONDS)
+    w2 = float(settings.AUTH_RATE_LIMIT_REGISTER_HOUR_WINDOW_SECONDS)
     now = time.monotonic()
-    w1, w2 = 60.0, 3600.0
     with _lock:
         q1 = _mem_register_min[ip_tok]
         q2 = _mem_register_hour[ip_tok]
@@ -247,24 +280,30 @@ def try_consume_register(client_ip: str) -> tuple[bool, int | None, str | None]:
     if not settings.AUTH_RATE_LIMIT_ENABLED:
         return True, None, None
     ip_tok = _ip_bucket(client_ip)
+    mw = int(settings.AUTH_RATE_LIMIT_REGISTER_MINUTE_WINDOW_SECONDS)
+    hw = int(settings.AUTH_RATE_LIMIT_REGISTER_HOUR_WINDOW_SECONDS)
     if _use_redis():
         try:
             r = get_redis()
-            k1 = f"{RL_PREFIX}:reg:1m:{ip_tok}"
-            k2 = f"{RL_PREFIX}:reg:1h:{ip_tok}"
+            k1 = f"{RL_PREFIX}:reg:min:w{mw}:{ip_tok}"
+            k2 = f"{RL_PREFIX}:reg:hr:w{hw}:{ip_tok}"
             now = time.time()
             member = f"{now:.6f}:{uuid.uuid4().hex}"
-            raw = r.eval(
-                _LUA_REGISTER_DUAL,
-                2,
-                k1,
-                k2,
-                str(now),
-                "60",
-                str(settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE),
-                "3600",
-                str(settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR),
-                member,
+            raw = _eval_sha_with_noscript_retry(
+                r,
+                cache_key="auth_rl:lua:register_dual:v1",
+                source=_LUA_REGISTER_DUAL,
+                numkeys=2,
+                keys_and_argv=[
+                    k1,
+                    k2,
+                    now,
+                    mw,
+                    settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE,
+                    hw,
+                    settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR,
+                    member,
+                ],
             )
             ok = int(raw[0]) == 1
             retry = int(raw[1]) if not ok else 0
@@ -286,14 +325,22 @@ def try_consume_login_ip(client_ip: str) -> tuple[bool, int | None]:
     if not settings.AUTH_RATE_LIMIT_ENABLED:
         return True, None
     lim = settings.AUTH_RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE
+    win = float(settings.AUTH_RATE_LIMIT_LOGIN_IP_WINDOW_SECONDS)
     ip_tok = _ip_bucket(client_ip)
     if _use_redis():
         try:
             r = get_redis()
-            key = f"{RL_PREFIX}:login:ip:60:{ip_tok}"
+            wint = int(settings.AUTH_RATE_LIMIT_LOGIN_IP_WINDOW_SECONDS)
+            key = f"{RL_PREFIX}:login:ip:w{wint}:{ip_tok}"
             now = time.time()
             member = f"{now:.6f}:{uuid.uuid4().hex}"
-            raw = r.eval(_LUA_ZSET_CONSUME, 1, key, str(now), "60", str(lim), member)
+            raw = _eval_sha_with_noscript_retry(
+                r,
+                cache_key="auth_rl:lua:zset_consume:v1",
+                source=_LUA_ZSET_CONSUME,
+                numkeys=1,
+                keys_and_argv=[key, now, wint, lim, member],
+            )
             ok = int(raw[0]) == 1
             retry = int(raw[1]) if not ok else 0
             return ok, (retry if retry >= 1 else None)
@@ -305,10 +352,10 @@ def try_consume_login_ip(client_ip: str) -> tuple[bool, int | None]:
     now = time.monotonic()
     with _lock:
         q = _mem_login_ip[ip_tok]
-        while q and now - q[0] > 60.0:
+        while q and now - q[0] > win:
             q.popleft()
         if len(q) >= lim:
-            wait = int(math.ceil(60.0 - (now - q[0])))
+            wait = int(math.ceil(win - (now - q[0])))
             return False, max(1, wait)
         q.append(now)
         return True, None
@@ -392,25 +439,22 @@ def try_consume_forgot_password(client_ip: str, email_normalized: str) -> tuple[
         return True, None, None
     lim_ip = settings.AUTH_RATE_LIMIT_FORGOT_PER_IP_PER_HOUR
     lim_em = settings.AUTH_RATE_LIMIT_FORGOT_PER_EMAIL_PER_HOUR
+    fw = int(settings.AUTH_RATE_LIMIT_FORGOT_WINDOW_SECONDS)
     ip_tok = _ip_bucket(client_ip)
     em_tok = _subject_hash(email_normalized)
     if _use_redis():
         try:
             r = get_redis()
-            k1 = f"{RL_PREFIX}:forgot:ip:3600:{ip_tok}"
-            k2 = f"{RL_PREFIX}:forgot:email:3600:{em_tok}"
+            k1 = f"{RL_PREFIX}:forgot:ip:w{fw}:{ip_tok}"
+            k2 = f"{RL_PREFIX}:forgot:email:w{fw}:{em_tok}"
             now = time.time()
             member = f"{now:.6f}:{uuid.uuid4().hex}"
-            raw = r.eval(
-                _LUA_FORGOT_DUAL,
-                2,
-                k1,
-                k2,
-                str(now),
-                "3600",
-                str(lim_ip),
-                str(lim_em),
-                member,
+            raw = _eval_sha_with_noscript_retry(
+                r,
+                cache_key="auth_rl:lua:forgot_dual:v1",
+                source=_LUA_FORGOT_DUAL,
+                numkeys=2,
+                keys_and_argv=[k1, k2, now, fw, lim_ip, lim_em, member],
             )
             ok = int(raw[0]) == 1
             retry = int(raw[1]) if not ok else 0
@@ -425,7 +469,7 @@ def try_consume_forgot_password(client_ip: str, email_normalized: str) -> tuple[
             if not settings.AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY:
                 raise
     now = time.monotonic()
-    w = 3600.0
+    w = float(fw)
     with _lock:
         q1 = _mem_forgot_ip[ip_tok]
         q2 = _mem_forgot_email[em_tok]

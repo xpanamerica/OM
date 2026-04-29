@@ -155,6 +155,30 @@ class Settings(BaseSettings):
         le=10_000,
         description="忘记密码：同一规范化邮箱滑动 3600 秒内最多请求次数。",
     )
+    AUTH_RATE_LIMIT_REGISTER_MINUTE_WINDOW_SECONDS: int = Field(
+        default=60,
+        ge=10,
+        le=3600,
+        description="注册「每分钟」维度的滑动窗口长度（秒）。",
+    )
+    AUTH_RATE_LIMIT_REGISTER_HOUR_WINDOW_SECONDS: int = Field(
+        default=3600,
+        ge=120,
+        le=604_800,
+        description="注册「每小时」维度的滑动窗口长度（秒）。",
+    )
+    AUTH_RATE_LIMIT_LOGIN_IP_WINDOW_SECONDS: int = Field(
+        default=60,
+        ge=10,
+        le=3600,
+        description="登录：每 IP 滑动窗口长度（秒）。",
+    )
+    AUTH_RATE_LIMIT_FORGOT_WINDOW_SECONDS: int = Field(
+        default=3600,
+        ge=120,
+        le=604_800,
+        description="忘记密码：每 IP / 每邮箱共用的时间窗口长度（秒）。",
+    )
     AUTH_TRUST_X_FORWARDED_FOR: bool = Field(
         default=False,
         description="为 True 时用 X-Forwarded-For 最左侧作为客户端 IP（仅置于受信反代之后开启）",
@@ -440,6 +464,14 @@ class Settings(BaseSettings):
         if t <= 0:
             raise ValueError(
                 "VIDEO_TRENDING_WEIGHT_VIEWS + VIDEO_TRENDING_WEIGHT_LIKES + VIDEO_TRENDING_WEIGHT_FAVORITES 须大于 0"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def auth_rate_limit_register_windows_coherent(self) -> Self:
+        if self.AUTH_RATE_LIMIT_REGISTER_HOUR_WINDOW_SECONDS < self.AUTH_RATE_LIMIT_REGISTER_MINUTE_WINDOW_SECONDS:
+            raise ValueError(
+                "AUTH_RATE_LIMIT_REGISTER_HOUR_WINDOW_SECONDS 须大于等于 AUTH_RATE_LIMIT_REGISTER_MINUTE_WINDOW_SECONDS"
             )
         return self
 

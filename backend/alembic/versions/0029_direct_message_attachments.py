@@ -17,6 +17,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    dialect = op.get_bind().dialect.name
+    ts_default = sa.text("now()") if dialect == "postgresql" else sa.text("CURRENT_TIMESTAMP")
     op.create_table(
         "direct_message_attachments",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -26,7 +28,7 @@ def upgrade() -> None:
         sa.Column("content_type", sa.String(length=255), nullable=True),
         sa.Column("size_bytes", sa.BigInteger(), nullable=False),
         sa.Column("storage_filename", sa.String(length=255), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=ts_default, nullable=False),
         sa.CheckConstraint("uploader_id <> peer_id", name="ck_direct_message_attachments_no_self"),
         sa.ForeignKeyConstraint(["peer_id"], ["users.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["uploader_id"], ["users.id"], ondelete="CASCADE"),

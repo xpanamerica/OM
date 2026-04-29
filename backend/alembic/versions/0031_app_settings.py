@@ -17,11 +17,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    dialect = op.get_bind().dialect.name
+    ts_default = sa.text("now()") if dialect == "postgresql" else sa.text("CURRENT_TIMESTAMP")
     op.create_table(
         "app_settings",
         sa.Column("key", sa.String(length=128), nullable=False),
         sa.Column("value", sa.Text(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=ts_default, nullable=False),
         sa.PrimaryKeyConstraint("key"),
     )
     op.execute(

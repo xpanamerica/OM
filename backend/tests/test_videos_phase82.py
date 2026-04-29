@@ -424,7 +424,7 @@ def test_openapi_includes_workflow_post_paths(client, db_session):
     found = [k for k in spec["paths"] if k.startswith(f"{prefix}/videos/") and any(k.endswith(s) for s in suffixes)]
     for s in suffixes:
         assert any(k.endswith(s) for k in found), f"missing path ending {s}"
-        path_key = next(k for k in spec["paths"] if k.endswith(s))
+        path_key = next(k for k in found if k.endswith(s))
         assert f"{prefix}/videos/{{video_id}}{s}" == path_key or "video_id" in path_key
         assert "post" in spec["paths"][path_key]
 

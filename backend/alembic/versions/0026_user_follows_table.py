@@ -17,12 +17,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    dialect = op.get_bind().dialect.name
+    ts_default = sa.text("now()") if dialect == "postgresql" else sa.text("CURRENT_TIMESTAMP")
     op.create_table(
         "user_follows",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("follower_id", sa.Uuid(), nullable=False),
         sa.Column("followee_id", sa.Uuid(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=ts_default, nullable=False),
         sa.CheckConstraint("follower_id <> followee_id", name="ck_user_follows_no_self"),
         sa.ForeignKeyConstraint(["followee_id"], ["users.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["follower_id"], ["users.id"], ondelete="CASCADE"),

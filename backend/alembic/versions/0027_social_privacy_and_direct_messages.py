@@ -17,12 +17,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    dialect = op.get_bind().dialect.name
+    ts_default = sa.text("now()") if dialect == "postgresql" else sa.text("CURRENT_TIMESTAMP")
     op.create_table(
         "user_privacy_settings",
         sa.Column("user_id", sa.Uuid(), nullable=False),
         sa.Column("profile_visibility", sa.String(length=16), server_default="public", nullable=False),
         sa.Column("message_permission", sa.String(length=16), server_default="everyone", nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=ts_default, nullable=False),
         sa.CheckConstraint(
             "profile_visibility IN ('public', 'followers', 'mutual', 'private')",
             name="ck_user_privacy_profile_visibility",
@@ -40,7 +42,7 @@ def upgrade() -> None:
         sa.Column("participant_low_id", sa.Uuid(), nullable=False),
         sa.Column("participant_high_id", sa.Uuid(), nullable=False),
         sa.Column("last_message_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=ts_default, nullable=False),
         sa.CheckConstraint(
             "participant_low_id <> participant_high_id",
             name="ck_direct_conversations_no_self",
@@ -65,7 +67,7 @@ def upgrade() -> None:
         sa.Column("recipient_id", sa.Uuid(), nullable=False),
         sa.Column("body", sa.Text(), nullable=False),
         sa.Column("read_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=ts_default, nullable=False),
         sa.ForeignKeyConstraint(["conversation_id"], ["direct_conversations.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["recipient_id"], ["users.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["sender_id"], ["users.id"], ondelete="CASCADE"),

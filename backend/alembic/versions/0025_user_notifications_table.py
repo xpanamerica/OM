@@ -17,6 +17,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    dialect = op.get_bind().dialect.name
+    ts_default = sa.text("now()") if dialect == "postgresql" else sa.text("CURRENT_TIMESTAMP")
     op.create_table(
         "user_notifications",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -26,7 +28,7 @@ def upgrade() -> None:
         sa.Column("kind", sa.String(length=32), server_default="info", nullable=False),
         sa.Column("action_url", sa.String(length=512), nullable=True),
         sa.Column("read_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=ts_default, nullable=False),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )

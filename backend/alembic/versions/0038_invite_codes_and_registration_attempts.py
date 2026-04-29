@@ -18,6 +18,8 @@ depends_on = None
 
 
 def upgrade() -> None:
+    dialect = op.get_bind().dialect.name
+    ts_default = sa.text("now()") if dialect == "postgresql" else sa.text("CURRENT_TIMESTAMP")
     op.create_table(
         "invite_codes",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -29,8 +31,8 @@ def upgrade() -> None:
         sa.Column("max_uses", sa.Integer(), server_default="1", nullable=False),
         sa.Column("used_count", sa.Integer(), server_default="0", nullable=False),
         sa.Column("status", sa.String(length=16), server_default="active", nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=ts_default, nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=ts_default, nullable=False),
         sa.CheckConstraint("max_uses >= 1", name="ck_invite_codes_max_uses"),
         sa.CheckConstraint("used_count >= 0", name="ck_invite_codes_used_count"),
         sa.CheckConstraint("used_count <= max_uses", name="ck_invite_codes_used_le_max"),
@@ -52,7 +54,7 @@ def upgrade() -> None:
         sa.Column("success", sa.Boolean(), nullable=False),
         sa.Column("failure_reason", sa.Text(), nullable=True),
         sa.Column("created_user_id", sa.Uuid(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=ts_default, nullable=False),
         sa.ForeignKeyConstraint(["created_user_id"], ["users.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )

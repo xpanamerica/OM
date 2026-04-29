@@ -104,6 +104,57 @@ class Settings(BaseSettings):
         default=True,
         description="Redis 限流调用失败时是否回退进程内滑动窗口；生产若要求严格一致可关（将抛错）。",
     )
+    AUTH_RATE_LIMIT_REDIS_STALE_REPROBE_SECONDS: int = Field(
+        default=30,
+        ge=0,
+        le=3600,
+        description=(
+            "当进程内曾判定 Redis 不可达时，认证限流每隔多少秒对 Redis 再探测一次；"
+            "0 表示不重探测（与其它子系统共用首次 ping 缓存）。"
+        ),
+    )
+    AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE: int = Field(
+        default=3,
+        ge=1,
+        le=10_000,
+        description="注册：每 IP 滑动 60 秒内最多请求次数。",
+    )
+    AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR: int = Field(
+        default=10,
+        ge=1,
+        le=100_000,
+        description="注册：每 IP 滑动 3600 秒内最多请求次数。",
+    )
+    AUTH_RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE: int = Field(
+        default=5,
+        ge=1,
+        le=10_000,
+        description="登录：每 IP 滑动 60 秒内最多请求次数。",
+    )
+    AUTH_RATE_LIMIT_LOGIN_FAIL_WINDOW_SECONDS: int = Field(
+        default=900,
+        ge=60,
+        le=86_400,
+        description="登录失败计数滑动窗口（秒），默认 15 分钟。",
+    )
+    AUTH_RATE_LIMIT_LOGIN_FAIL_MAX_PER_ACCOUNT: int = Field(
+        default=5,
+        ge=1,
+        le=10_000,
+        description="同一登录标识在上述窗口内允许的最大失败次数，达到后拒绝登录直至窗口滑动。",
+    )
+    AUTH_RATE_LIMIT_FORGOT_PER_IP_PER_HOUR: int = Field(
+        default=3,
+        ge=1,
+        le=10_000,
+        description="忘记密码：每 IP 滑动 3600 秒内最多请求次数。",
+    )
+    AUTH_RATE_LIMIT_FORGOT_PER_EMAIL_PER_HOUR: int = Field(
+        default=2,
+        ge=1,
+        le=10_000,
+        description="忘记密码：同一规范化邮箱滑动 3600 秒内最多请求次数。",
+    )
     AUTH_TRUST_X_FORWARDED_FOR: bool = Field(
         default=False,
         description="为 True 时用 X-Forwarded-For 最左侧作为客户端 IP（仅置于受信反代之后开启）",

@@ -71,7 +71,11 @@ from app.core.upload_rate_limit import (
     purge_video_upload_rate_limit_redis_keys_for_tests,
     reset_video_upload_rate_limit_state_for_tests,
 )
-from app.core.auth_rate_limit import purge_auth_rate_limit_redis_keys_for_tests, reset_auth_rate_limit_memory_for_tests
+from app.core.auth_rate_limit import (
+    purge_auth_rate_limit_redis_keys_for_tests,
+    reset_auth_rate_limit_memory_for_tests,
+    reset_auth_rate_limit_redis_probe_state_for_tests,
+)
 from app.core.search_rate_limit import reset_search_rate_limit_state_for_tests
 
 import app.models  # noqa: F401 — 确保 User 等表注册到 metadata
@@ -91,6 +95,7 @@ def _reset_auth_rate_limit_between_tests():
     reset_vod_refresh_upload_rate_limit_for_tests()
     purge_vod_refresh_upload_rate_limit_redis_keys_for_tests()
     reset_auth_rate_limit_memory_for_tests()
+    reset_auth_rate_limit_redis_probe_state_for_tests()
     purge_auth_rate_limit_redis_keys_for_tests()
     reset_search_rate_limit_state_for_tests()
     reset_comment_rate_limit_state()
@@ -107,6 +112,7 @@ def _reset_auth_rate_limit_between_tests():
     reset_vod_refresh_upload_rate_limit_for_tests()
     purge_vod_refresh_upload_rate_limit_redis_keys_for_tests()
     reset_auth_rate_limit_memory_for_tests()
+    reset_auth_rate_limit_redis_probe_state_for_tests()
     purge_auth_rate_limit_redis_keys_for_tests()
     reset_search_rate_limit_state_for_tests()
     reset_comment_rate_limit_state()

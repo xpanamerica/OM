@@ -85,7 +85,7 @@ def login(
         security_event_repository.insert_event_sync(
             event_type="rate_limit.auth.login_account",
             ip_address=ip,
-            subject_hash=auth_rate_limit.subject_fingerprint(form_data.username),
+            subject_hash=auth_rate_limit.login_account_subject_hash(form_data.username),
             detail="login_failures_per_account",
         )
         raise AuthRateLimitExceeded()

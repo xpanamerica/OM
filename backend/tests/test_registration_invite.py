@@ -170,13 +170,13 @@ def test_register_rejects_expired_invite(client, db_session):
 
 
 def test_register_rate_limited_after_max_attempts(monkeypatch, client, db_session):
-    from app.core import auth_rate_limit as arl
-
     monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
     monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
-    monkeypatch.setattr(arl, "REGISTER_PER_IP_PER_MINUTE", 2)
-    monkeypatch.setattr(arl, "REGISTER_PER_IP_PER_HOUR", 100)
-    arl.reset_auth_rate_limit_memory_for_tests()
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE", 2)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR", 100)
+    from app.core.auth_rate_limit import reset_auth_rate_limit_memory_for_tests
+
+    reset_auth_rate_limit_memory_for_tests()
 
     for i in range(2):
         r = client.post(

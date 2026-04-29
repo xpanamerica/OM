@@ -32,3 +32,13 @@ def redis_available_cached() -> bool:
 def reset_redis_availability_cache_for_tests() -> None:
     global _redis_ping_cached
     _redis_ping_cached = None
+
+
+def ping_redis_and_refresh_cache() -> bool:
+    """强制探测 Redis 并写回进程内缓存（成功/失败均更新）。
+
+    用于认证限流等在「缓存曾判定不可达」后按间隔重试，或在 Redis 命令异常后刷新全局状态。
+    """
+    global _redis_ping_cached
+    _redis_ping_cached = ping_redis()
+    return bool(_redis_ping_cached)

@@ -17,7 +17,7 @@
 | POST | `P/auth/login` | `application/x-www-form-urlencoded`：`username`（可填用户名或邮箱）、`password`；200 返回 `access_token`、`token_type` |
 | POST | `P/auth/forgot-password` | **可匿名**；JSON：`email`；防枚举固定 200 文案；启用限流且超配额时 **429**，体为 `{"success":false,"message":"请求过于频繁，请稍后再试。"}` |
 
-认证限流（`AUTH_RATE_LIMIT_ENABLED=true` 且 Redis 可用时多实例一致）：注册按 IP 每分钟 3 次、每小时 10 次；登录按 IP 每分钟 5 次、同一账号 15 分钟内失败最多 5 次后拒绝；忘记密码按 IP 每小时 3 次、同一邮箱每小时 2 次。超限事件写入 `security_events` 表。
+认证限流（`AUTH_RATE_LIMIT_ENABLED=true` 且 Redis 可用时多实例一致）：默认配额为注册每 IP 每分钟 3 / 每小时 10；登录每 IP 每分钟 5；同一登录标识 15 分钟内失败 5 次后拒绝；忘记密码每 IP 每小时 3、每邮箱每小时 2（均可经环境变量覆盖，见 `app/core/config.py`）。进程内曾判定 Redis 不可达时，可按 `AUTH_RATE_LIMIT_REDIS_STALE_REPROBE_SECONDS` 周期性重探测。超限事件写入 `security_events` 表。
 
 ---
 

@@ -1,9 +1,10 @@
 """认证相关端点限流：Redis 优先，可回退进程内滑动窗口。
 
-生产配额（与业务常量一致，单测可 monkeypatch 模块级常量）：
-- 注册：每 IP 每分钟 3 次、每小时 10 次
-- 登录：每 IP 每分钟 5 次；同一账号 15 分钟内失败最多 5 次后拒绝
-- 忘记密码：每 IP 每小时 3 次；同一邮箱每小时 2 次
+配额由 ``Settings`` 配置（环境变量），默认与产品规格一致：
+注册每 IP 每分钟 / 每小时、登录每 IP 每分钟、账号失败窗口、忘记密码每 IP / 每邮箱每小时。
+
+Redis 曾判定不可达时，可按 ``AUTH_RATE_LIMIT_REDIS_STALE_REPROBE_SECONDS`` 周期性重探测；
+单次命令失败会刷新全局 Redis 可达性缓存，避免长时间误用陈旧结论。
 """
 
 from __future__ import annotations
@@ -19,22 +20,16 @@ from threading import Lock
 from redis.exceptions import RedisError
 
 from app.core.config import settings
-from app.infrastructure.redis import get_redis, redis_available_cached
+from app.infrastructure.redis import get_redis, ping_redis_and_refresh_cache, redis_available_cached
 
 logger = logging.getLogger(__name__)
 
 RL_PREFIX = "rl:auth:v1"
 
-# 生产配额（测试可 monkeypatch）
-REGISTER_PER_IP_PER_MINUTE = 3
-REGISTER_PER_IP_PER_HOUR = 10
-LOGIN_PER_IP_PER_MINUTE = 5
-LOGIN_FAIL_WINDOW_SEC = 15 * 60
-LOGIN_FAIL_MAX_PER_ACCOUNT = 5
-FORGOT_PER_IP_PER_HOUR = 3
-FORGOT_PER_EMAIL_PER_HOUR = 2
-
 _lock = Lock()
+_stale_probe_lock = Lock()
+_last_redis_reprobe_monotonic: float = 0.0
+
 _mem_register_min: dict[str, deque[float]] = defaultdict(deque)
 _mem_register_hour: dict[str, deque[float]] = defaultdict(deque)
 _mem_login_ip: dict[str, deque[float]] = defaultdict(deque)
@@ -149,9 +144,24 @@ def _subject_hash(s: str) -> str:
     return hashlib.sha256(s.strip().lower().encode("utf-8")).hexdigest()
 
 
+def normalize_login_identifier_for_rate_limit(identifier: str) -> str:
+    """与 ``user_repository.get_by_login_identifier`` 一致的规范化，用于账号维度限流键。"""
+    ident = identifier.strip()
+    if not ident:
+        return ""
+    if "@" in ident:
+        return ident.lower()
+    return ident.lower()
+
+
 def subject_fingerprint(s: str) -> str:
-    """登录标识或邮箱规范化后的指纹（写入 security_events.subject_hash）。"""
+    """写入 ``security_events.subject_hash``（邮箱或已规范化的登录串）。"""
     return _subject_hash(s)
+
+
+def login_account_subject_hash(login_identifier: str) -> str:
+    """与账号维度限流 Redis 键一致的 SHA-256 十六进制（写入审计）。"""
+    return _login_account_key(login_identifier)
 
 
 def reset_auth_rate_limit_memory_for_tests() -> None:
@@ -162,6 +172,12 @@ def reset_auth_rate_limit_memory_for_tests() -> None:
         _mem_login_fail.clear()
         _mem_forgot_ip.clear()
         _mem_forgot_email.clear()
+
+
+def reset_auth_rate_limit_redis_probe_state_for_tests() -> None:
+    global _last_redis_reprobe_monotonic
+    with _stale_probe_lock:
+        _last_redis_reprobe_monotonic = 0.0
 
 
 def purge_auth_rate_limit_redis_keys_for_tests() -> None:
@@ -175,15 +191,37 @@ def purge_auth_rate_limit_redis_keys_for_tests() -> None:
         pass
 
 
+def _refresh_redis_availability_after_command_error() -> None:
+    try:
+        ping_redis_and_refresh_cache()
+    except Exception:
+        pass
+
+
 def _use_redis() -> bool:
-    return (
-        bool(settings.AUTH_RATE_LIMIT_ENABLED)
-        and settings.AUTH_RATE_LIMIT_USE_REDIS
-        and redis_available_cached()
-    )
+    if not settings.AUTH_RATE_LIMIT_ENABLED or not settings.AUTH_RATE_LIMIT_USE_REDIS:
+        return False
+    if redis_available_cached():
+        return True
+    reprobe = int(settings.AUTH_RATE_LIMIT_REDIS_STALE_REPROBE_SECONDS or 0)
+    if reprobe <= 0:
+        return False
+    global _last_redis_reprobe_monotonic
+    with _stale_probe_lock:
+        now = time.monotonic()
+        if now - _last_redis_reprobe_monotonic < reprobe:
+            return False
+        _last_redis_reprobe_monotonic = now
+    return ping_redis_and_refresh_cache()
+
+
+def _login_account_key(login_identifier: str) -> str:
+    return _subject_hash(normalize_login_identifier_for_rate_limit(login_identifier))
 
 
 def _mem_try_dual_register(ip_tok: str) -> tuple[bool, int, str | None]:
+    lim_m = settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE
+    lim_h = settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR
     now = time.monotonic()
     w1, w2 = 60.0, 3600.0
     with _lock:
@@ -193,10 +231,10 @@ def _mem_try_dual_register(ip_tok: str) -> tuple[bool, int, str | None]:
             q1.popleft()
         while q2 and now - q2[0] > w2:
             q2.popleft()
-        if len(q1) >= REGISTER_PER_IP_PER_MINUTE:
+        if len(q1) >= lim_m:
             wait = int(math.ceil(w1 - (now - q1[0])))
             return False, max(1, wait), "register_per_minute"
-        if len(q2) >= REGISTER_PER_IP_PER_HOUR:
+        if len(q2) >= lim_h:
             wait = int(math.ceil(w2 - (now - q2[0])))
             return False, max(1, wait), "register_per_hour"
         q1.append(now)
@@ -223,9 +261,9 @@ def try_consume_register(client_ip: str) -> tuple[bool, int | None, str | None]:
                 k2,
                 str(now),
                 "60",
-                str(REGISTER_PER_IP_PER_MINUTE),
+                str(settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE),
                 "3600",
-                str(REGISTER_PER_IP_PER_HOUR),
+                str(settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR),
                 member,
             )
             ok = int(raw[0]) == 1
@@ -237,6 +275,7 @@ def try_consume_register(client_ip: str) -> tuple[bool, int | None, str | None]:
             return ok, (retry if retry >= 1 else None), which
         except RedisError as e:
             logger.warning("auth_rate_limit register redis failed: %s", e)
+            _refresh_redis_availability_after_command_error()
             if not settings.AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY:
                 raise
     allowed, ra, which = _mem_try_dual_register(ip_tok)
@@ -246,6 +285,7 @@ def try_consume_register(client_ip: str) -> tuple[bool, int | None, str | None]:
 def try_consume_login_ip(client_ip: str) -> tuple[bool, int | None]:
     if not settings.AUTH_RATE_LIMIT_ENABLED:
         return True, None
+    lim = settings.AUTH_RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE
     ip_tok = _ip_bucket(client_ip)
     if _use_redis():
         try:
@@ -253,12 +293,13 @@ def try_consume_login_ip(client_ip: str) -> tuple[bool, int | None]:
             key = f"{RL_PREFIX}:login:ip:60:{ip_tok}"
             now = time.time()
             member = f"{now:.6f}:{uuid.uuid4().hex}"
-            raw = r.eval(_LUA_ZSET_CONSUME, 1, key, str(now), "60", str(LOGIN_PER_IP_PER_MINUTE), member)
+            raw = r.eval(_LUA_ZSET_CONSUME, 1, key, str(now), "60", str(lim), member)
             ok = int(raw[0]) == 1
             retry = int(raw[1]) if not ok else 0
             return ok, (retry if retry >= 1 else None)
         except RedisError as e:
             logger.warning("auth_rate_limit login_ip redis failed: %s", e)
+            _refresh_redis_availability_after_command_error()
             if not settings.AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY:
                 raise
     now = time.monotonic()
@@ -266,7 +307,7 @@ def try_consume_login_ip(client_ip: str) -> tuple[bool, int | None]:
         q = _mem_login_ip[ip_tok]
         while q and now - q[0] > 60.0:
             q.popleft()
-        if len(q) >= LOGIN_PER_IP_PER_MINUTE:
+        if len(q) >= lim:
             wait = int(math.ceil(60.0 - (now - q[0])))
             return False, max(1, wait)
         q.append(now)
@@ -277,52 +318,56 @@ def login_account_failure_count(login_identifier: str) -> int:
     """当前滑动窗口内已记录的失败次数（不含本次）。"""
     if not settings.AUTH_RATE_LIMIT_ENABLED:
         return 0
-    sub = _subject_hash(login_identifier)
+    sub = _login_account_key(login_identifier)
+    win = settings.AUTH_RATE_LIMIT_LOGIN_FAIL_WINDOW_SECONDS
     if _use_redis():
         try:
             r = get_redis()
             key = f"{RL_PREFIX}:login:fail:{sub}"
             now = time.time()
-            r.zremrangebyscore(key, 0, now - LOGIN_FAIL_WINDOW_SEC)
+            r.zremrangebyscore(key, 0, now - win)
             return int(r.zcard(key))
         except RedisError as e:
             logger.warning("auth_rate_limit login_fail count redis failed: %s", e)
+            _refresh_redis_availability_after_command_error()
             if not settings.AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY:
                 raise
     now = time.monotonic()
     with _lock:
         q = _mem_login_fail[sub]
-        while q and now - q[0] > LOGIN_FAIL_WINDOW_SEC:
+        while q and now - q[0] > win:
             q.popleft()
         return len(q)
 
 
 def is_login_account_blocked(login_identifier: str) -> bool:
-    return login_account_failure_count(login_identifier) >= LOGIN_FAIL_MAX_PER_ACCOUNT
+    return login_account_failure_count(login_identifier) >= settings.AUTH_RATE_LIMIT_LOGIN_FAIL_MAX_PER_ACCOUNT
 
 
 def record_login_failure(login_identifier: str) -> None:
     if not settings.AUTH_RATE_LIMIT_ENABLED:
         return
-    sub = _subject_hash(login_identifier)
+    sub = _login_account_key(login_identifier)
+    win = settings.AUTH_RATE_LIMIT_LOGIN_FAIL_WINDOW_SECONDS
     if _use_redis():
         try:
             r = get_redis()
             key = f"{RL_PREFIX}:login:fail:{sub}"
             now = time.time()
             member = f"{now:.6f}:{uuid.uuid4().hex}"
-            r.zremrangebyscore(key, 0, now - LOGIN_FAIL_WINDOW_SEC)
+            r.zremrangebyscore(key, 0, now - win)
             r.zadd(key, {member: now})
-            r.expire(key, LOGIN_FAIL_WINDOW_SEC + 10)
+            r.expire(key, win + 10)
         except RedisError as e:
             logger.warning("auth_rate_limit login_fail record redis failed: %s", e)
+            _refresh_redis_availability_after_command_error()
             if not settings.AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY:
                 raise
         return
     now = time.monotonic()
     with _lock:
         q = _mem_login_fail[sub]
-        while q and now - q[0] > LOGIN_FAIL_WINDOW_SEC:
+        while q and now - q[0] > win:
             q.popleft()
         q.append(now)
 
@@ -330,13 +375,13 @@ def record_login_failure(login_identifier: str) -> None:
 def clear_login_failures(login_identifier: str) -> None:
     if not settings.AUTH_RATE_LIMIT_ENABLED:
         return
-    sub = _subject_hash(login_identifier)
+    sub = _login_account_key(login_identifier)
     if _use_redis():
         try:
             r = get_redis()
             r.delete(f"{RL_PREFIX}:login:fail:{sub}")
         except RedisError:
-            pass
+            _refresh_redis_availability_after_command_error()
         return
     with _lock:
         _mem_login_fail.pop(sub, None)
@@ -345,6 +390,8 @@ def clear_login_failures(login_identifier: str) -> None:
 def try_consume_forgot_password(client_ip: str, email_normalized: str) -> tuple[bool, int | None, str | None]:
     if not settings.AUTH_RATE_LIMIT_ENABLED:
         return True, None, None
+    lim_ip = settings.AUTH_RATE_LIMIT_FORGOT_PER_IP_PER_HOUR
+    lim_em = settings.AUTH_RATE_LIMIT_FORGOT_PER_EMAIL_PER_HOUR
     ip_tok = _ip_bucket(client_ip)
     em_tok = _subject_hash(email_normalized)
     if _use_redis():
@@ -361,8 +408,8 @@ def try_consume_forgot_password(client_ip: str, email_normalized: str) -> tuple[
                 k2,
                 str(now),
                 "3600",
-                str(FORGOT_PER_IP_PER_HOUR),
-                str(FORGOT_PER_EMAIL_PER_HOUR),
+                str(lim_ip),
+                str(lim_em),
                 member,
             )
             ok = int(raw[0]) == 1
@@ -374,6 +421,7 @@ def try_consume_forgot_password(client_ip: str, email_normalized: str) -> tuple[
             return ok, (retry if retry >= 1 else None), which
         except RedisError as e:
             logger.warning("auth_rate_limit forgot redis failed: %s", e)
+            _refresh_redis_availability_after_command_error()
             if not settings.AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY:
                 raise
     now = time.monotonic()
@@ -385,9 +433,9 @@ def try_consume_forgot_password(client_ip: str, email_normalized: str) -> tuple[
             q1.popleft()
         while q2 and now - q2[0] > w:
             q2.popleft()
-        if len(q1) >= FORGOT_PER_IP_PER_HOUR:
+        if len(q1) >= lim_ip:
             return False, max(1, int(math.ceil(w - (now - q1[0])))), "forgot_password_per_ip"
-        if len(q2) >= FORGOT_PER_EMAIL_PER_HOUR:
+        if len(q2) >= lim_em:
             return False, max(1, int(math.ceil(w - (now - q2[0])))), "forgot_password_per_email"
         q1.append(now)
         q2.append(now)

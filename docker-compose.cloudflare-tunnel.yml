@@ -1,0 +1,30 @@
+# 可选：把 Cloudflare Tunnel 也纳入 compose 管理。
+#
+# 用法：
+#   1) 在 Cloudflare Zero Trust 创建 Named Tunnel，并复制 token
+#   2) cp deploy/cloudflare-tunnel/.env.example deploy/cloudflare-tunnel/.env
+#   3) 编辑 CLOUDFLARED_TUNNEL_TOKEN；如果用户站/管理端使用两个 Tunnel，再设置 CLOUDFLARED_USER_TUNNEL_TOKEN
+#   4) docker compose --env-file ./backend/.env.local-beta --env-file ./deploy/cloudflare-tunnel/.env \
+#        -f docker-compose.local-beta.yml -f docker-compose.cloudflare-tunnel.yml up -d --build
+#
+# Linux 下使用 host network，使 cloudflared 能访问 local-beta Nginx 绑定的 127.0.0.1:8080/8081。
+services:
+  cloudflared:
+    image: ${MEDIA_CLOUDFLARED_IMAGE:-cloudflare/cloudflared:latest}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN:?在 deploy/cloudflare-tunnel/.env 中设置 CLOUDFLARED_TUNNEL_TOKEN}
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      nginx:
+        condition: service_started
+
+  cloudflared_user:
+    image: ${MEDIA_CLOUDFLARED_IMAGE:-cloudflare/cloudflared:latest}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_USER_TUNNEL_TOKEN:?如果使用第二个用户站 Tunnel，请在 deploy/cloudflare-tunnel/.env 中设置 CLOUDFLARED_USER_TUNNEL_TOKEN}
+    network_mode: host
+    restart: unless-stopped
+    profiles:
+      - user-tunnel
+    depends_on:
+      nginx:
+        condition: service_started

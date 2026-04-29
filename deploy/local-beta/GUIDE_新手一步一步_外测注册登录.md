@@ -60,24 +60,47 @@ chmod +x deploy/local-beta/build-and-up.sh
 chmod +x scripts/dev-admin-web.sh
 ./scripts/dev-admin-web.sh
 ```
-【动 Cloudflare Tunnel（用户站 + 管理后台两条）】
-export PATH="$HOME/.local/bin:$PATH"
 
-nohup cloudflared tunnel --url http://127.0.0.1:8080 > /tmp/cf-tunnel-8080.log 2>&1 &
-echo $! > /tmp/cf-tunnel-8080.pid
+【Cloudflare 固定域名打开指令】用户站 `https://app.omhengpin.com`，管理端 `https://admin.omhengpin.com`：
 
-nohup cloudflared tunnel --url http://127.0.0.1:8081 > /tmp/cf-tunnel-8081.log 2>&1 &
-echo $! > /tmp/cf-tunnel-8081.pid
+```bash
+cd /home/xixiang2025/OM
+set -a
+. ./deploy/cloudflare-tunnel/.env
+set +a
 
+docker compose \
+  --profile user-tunnel \
+  --env-file ./backend/.env.local-beta \
+  -f docker-compose.local-beta.yml \
+  -f docker-compose.cloudflare-tunnel.yml \
+  up -d --build
+```
 
-查看生成的公网链接：
-grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' /tmp/cf-tunnel-8080.log /tmp/cf-tunnel-8081.log
+【Cloudflare 固定域名关闭指令】只关闭公网隧道，本机 `127.0.0.1:8080/8081` 仍可访问：
 
-查看是否还在运行：
-pgrep -a cloudflared
+```bash
+cd /home/xixiang2025/OM
+set -a
+. ./deploy/cloudflare-tunnel/.env
+set +a
 
-终止两条 Tunnel：
-kill "$(cat /tmp/cf-tunnel-8080.pid)" "$(cat /tmp/cf-tunnel-8081.pid)" 2>/dev/null
+docker compose \
+  --profile user-tunnel \
+  --env-file ./backend/.env.local-beta \
+  -f docker-compose.local-beta.yml \
+  -f docker-compose.cloudflare-tunnel.yml \
+  stop cloudflared cloudflared_user
+```
+
+验证固定域名：
+
+```bash
+cd /home/xixiang2025/OM
+APP_URL=https://app.omhengpin.com \
+ADMIN_URL=https://admin.omhengpin.com \
+bash deploy/cloudflare-tunnel/verify_cloudflare_tunnel.sh
+```
 
 
 

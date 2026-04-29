@@ -142,6 +142,51 @@ def test_register_rejects_used_invite(client, db_session):
     assert "邀请码" in r2.json()["detail"]
 
 
+def test_invite_atomic_redeem_allows_only_one_success(db_session):
+    """仓储层不依赖 TestClient 线程模型：条件 UPDATE 保证单次邀请码只被消费一次。"""
+    now = datetime.now(UTC)
+    u1 = user_repository.create_user(
+        db_session,
+        email="atomic1@example.com",
+        username="atomic1",
+        hashed_password=get_password_hash("secret1234"),
+    )
+    u2 = user_repository.create_user(
+        db_session,
+        email="atomic2@example.com",
+        username="atomic2",
+        hashed_password=get_password_hash("secret1234"),
+    )
+    invite = invite_code_repository.create_invite(
+        db_session,
+        code="ATOMICINVITE1234567890",
+        created_by=None,
+        expires_at=None,
+        max_uses=1,
+    )
+    db_session.commit()
+
+    assert invite_code_repository.redeem_invite_if_available(
+        db_session,
+        invite_id=invite.id,
+        user_id=u1.id,
+        now=now,
+    ) is True
+    assert invite_code_repository.redeem_invite_if_available(
+        db_session,
+        invite_id=invite.id,
+        user_id=u2.id,
+        now=now,
+    ) is False
+    db_session.commit()
+
+    db_session.expire_all()
+    row = db_session.scalars(select(InviteCode).where(InviteCode.id == invite.id)).one()
+    assert row.used_count == 1
+    assert row.status == "used"
+    assert row.used_by == u1.id
+
+
 def test_register_rejects_expired_invite(client, db_session):
     app_setting_repository.set_value(db_session, key="registration_invite_code_required", value="true")
     db_session.commit()

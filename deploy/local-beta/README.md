@@ -253,6 +253,14 @@ BETA_PUBLIC_BASE=http://127.0.0.1:8080 ./deploy/local-beta/scripts/register_demo
 
 前端已使用 **`VITE_API_BASE_URL=/api/v1`** 时，**同一隧道域名**下页面与 API **同源**，隧道 URL 变更后通常**无需重新 build**。
 
+Cloudflare Tunnel 推荐直接使用仓库内专用说明：**[`../cloudflare-tunnel/README.md`](../cloudflare-tunnel/README.md)**。它包含：
+
+- 用户站 `app.example.com` → `127.0.0.1:8080`
+- 管理端 `admin.example.com` → `127.0.0.1:8081`
+- compose 托管 `cloudflared`
+- `API_PUBLIC_BASE_URL=https://app.example.com/api/v1`
+- 一键验证脚本 `deploy/cloudflare-tunnel/verify_cloudflare_tunnel.sh`
+
 ### Cloudflare Tunnel（quick tunnel）
 
 多数 Linux 发行版 **`apt install cloudflared` 会报找不到包**，请从 [GitHub Releases](https://github.com/cloudflare/cloudflared/releases/latest) 下载 `cloudflared-linux-amd64`（或 `arm64`）到 `~/.local/bin` 或 `/usr/local/bin` 并 `chmod +x`；详见 **`GUIDE_新手一步一步_外测注册登录.md`** 第七节 A1。
@@ -275,6 +283,14 @@ cloudflared tunnel --url http://127.0.0.1:8081
 
 （`ENVIRONMENT=local` 时常用 `*` 已足够，按你环境收紧。）
 
+若视频播放链接在浏览器控制台显示 **mixed content** 或 URL 以 `http://` 开头，请设置：
+
+```bash
+API_PUBLIC_BASE_URL=https://你的用户站.trycloudflare.com/api/v1
+```
+
+然后重启 compose。
+
 ### ngrok
 
 安装请用 [ngrok 官方 Linux 文档](https://ngrok.com/download/linux) 的 **apt 源**（勿使用已失效的 `bin.equinox.io` 直链；ARM 包名为 **arm64** 而非 `aarch64`）。配置 `ngrok config add-authtoken` 后：
@@ -292,6 +308,7 @@ ngrok http http://127.0.0.1:8081
 
 - [ ] `docker compose --env-file ./backend/.env.local-beta -f docker-compose.local-beta.yml ps` 中 `db`、`redis`、`api`、`nginx` 均为 `running` / `healthy`。
 - [ ] `curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/health` 与 `...8081/health` 均为 **200**。
+- [ ] Cloudflare Tunnel：`APP_URL=https://你的用户站域名 ADMIN_URL=https://你的管理端域名 bash deploy/cloudflare-tunnel/verify_cloudflare_tunnel.sh` 通过。
 - [ ] `curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/api/v1/` 或文档中已知公开路径返回预期（非 502）。
 - [ ] 用户站首页与列表无控制台大量 **404** / CORS 错误（若此前 `/users/me/profile-hub` 等 404，多为旧 compose 或走错后端目录；确认 **`om-media-local-beta`** 栈且 **`openapi.json`** 含对应路径）。
 - [ ] （可选）**Expo**：`EXPO_PUBLIC_API_BASE_URL` 使用 **8080**（local-beta）或 **8000**（backend compose），勿混用（见上文 §8.1）。

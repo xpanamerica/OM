@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.models.invite_code import InviteCode
@@ -19,6 +19,42 @@ def get_by_code_for_update(db: Session, raw_code: str) -> InviteCode | None:
         return None
     stmt = select(InviteCode).where(InviteCode.code == code).with_for_update()
     return db.scalars(stmt).first()
+
+
+def redeem_invite_if_available(
+    db: Session,
+    *,
+    invite_id: uuid.UUID,
+    user_id: uuid.UUID,
+    now: datetime,
+) -> bool:
+    """原子消费一次邀请码。
+
+    ``SELECT ... FOR UPDATE`` 在 PostgreSQL 上足够，但 SQLite 测试环境会忽略行锁；
+    条件 ``UPDATE`` 将「未用完才递增」变成数据库层不变量，避免并发请求双双成功。
+    """
+    stmt = (
+        update(InviteCode)
+        .where(
+            InviteCode.id == invite_id,
+            InviteCode.status == "active",
+            InviteCode.used_count < InviteCode.max_uses,
+            or_(InviteCode.expires_at.is_(None), InviteCode.expires_at > now),
+        )
+        .values(
+            used_count=InviteCode.used_count + 1,
+            used_by=user_id,
+            used_at=now,
+            updated_at=now,
+            status=case(
+                (InviteCode.used_count + 1 >= InviteCode.max_uses, "used"),
+                else_="active",
+            ),
+        )
+    )
+    res = db.execute(stmt)
+    db.flush()
+    return bool(res.rowcount == 1)
 
 
 def create_invite(

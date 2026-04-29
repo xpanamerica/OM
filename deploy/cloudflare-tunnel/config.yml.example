@@ -1,0 +1,26 @@
+# Named Tunnel 配置文件示例（适合不用 Docker token、直接在宿主机跑 cloudflared 的方式）。
+#
+# 替换：
+#   <TUNNEL_UUID_OR_NAME>、credentials-file、hostname。
+# 然后：
+#   cloudflared tunnel route dns <TUNNEL_UUID_OR_NAME> app.example.com
+#   cloudflared tunnel route dns <TUNNEL_UUID_OR_NAME> admin.example.com
+#   cloudflared tunnel --config deploy/cloudflare-tunnel/config.yml run <TUNNEL_UUID_OR_NAME>
+
+tunnel: <TUNNEL_UUID_OR_NAME>
+credentials-file: /home/xixiang2025/.cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  # 用户站：Nginx 8080，含同源 /api/v1、/health、/docs、视频本机流式播放。
+  - hostname: app.example.com
+    service: http://127.0.0.1:8080
+    originRequest:
+      httpHostHeader: app.example.com
+
+  # 管理端：Nginx 8081，须单独暴露，否则 Cloudflare 上无法访问后台功能。
+  - hostname: admin.example.com
+    service: http://127.0.0.1:8081
+    originRequest:
+      httpHostHeader: admin.example.com
+
+  - service: http_status:404

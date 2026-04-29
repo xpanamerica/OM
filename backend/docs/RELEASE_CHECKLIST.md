@@ -34,6 +34,7 @@
 - [ ] **`GET /health`** 返回 `database=connected`（及你方要求的 Redis 等项）；`status` 为 `ok` 或可接受的 `degraded` 且原因已知。
 - [ ] **数据表与文档用语**：点赞/收藏在库中为表 **`video_likes`**、**`video_favorites`**（非字面 `likes`/`favorites`）；迁移与 ORM 以此为准。
 - [ ] **关键业务路径**已在 staging 手工或自动化验证（注册/登录、视频发布流、评论、点赞、播放记录、管理员接口）。
+- [ ] **邀请码并发**：若开启内测邀请码，已确认 CI job **invite-http-concurrency** 通过（PostgreSQL + 独立 Uvicorn + httpx 并发，同一一次性邀请码仅一个 201）。
 - [ ] **JWT 过期时间** `ACCESS_TOKEN_EXPIRE_MINUTES` 与前端刷新策略一致。
 
 ---

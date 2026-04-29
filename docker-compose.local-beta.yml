@@ -55,6 +55,9 @@ services:
         BASE_IMAGE: ${MEDIA_PYTHON_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
     env_file:
       - ./backend/.env.local-beta
+    command: >
+      sh -c "python -m alembic -c /app/alembic.ini upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"
     expose:
       - "8000"
     healthcheck:

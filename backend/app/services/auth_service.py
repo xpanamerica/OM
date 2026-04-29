@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
@@ -41,14 +40,6 @@ def _invite_validation_message(invite: InviteCode, *, now: datetime) -> str | No
     if invite.used_count >= invite.max_uses:
         return "邀请码已用完"
     return None
-
-
-def _redeem_invite(invite: InviteCode, *, user_id: uuid.UUID, now: datetime) -> None:
-    invite.used_count += 1
-    invite.used_by = user_id
-    invite.used_at = now
-    if invite.used_count >= invite.max_uses:
-        invite.status = "used"
 
 
 def register_user(
@@ -114,7 +105,15 @@ def register_user(
         )
         db.flush()
         if invite_required and invite_row is not None:
-            _redeem_invite(invite_row, user_id=user.id, now=now)
+            redeemed = invite_code_repository.redeem_invite_if_available(
+                db,
+                invite_id=invite_row.id,
+                user_id=user.id,
+                now=now,
+            )
+            if not redeemed:
+                audit(success=False, failure_reason="邀请码已用完")
+                raise AppError("邀请码已用完", status_code=400)
         db.commit()
         db.refresh(user)
         try:

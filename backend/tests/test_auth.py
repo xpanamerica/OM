@@ -134,8 +134,13 @@ def test_email_normalized_on_register(client):
 
 
 def test_login_returns_429_after_rate_limit_threshold(client, monkeypatch):
-    """限流开启时，同一客户端 IP 超限 POST /auth/login 须 429。"""
-    monkeypatch.setattr(config_module.settings, "AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE", 2)
+    """限流开启时，同一客户端 IP 超限 POST /auth/login 须 429 且 JSON 体符合约定。"""
+    from app.core import auth_rate_limit as arl
+
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
+    monkeypatch.setattr(arl, "LOGIN_PER_IP_PER_MINUTE", 2)
+    arl.reset_auth_rate_limit_memory_for_tests()
     prefix = settings.API_V1_PREFIX
     for _ in range(2):
         r = client.post(
@@ -148,7 +153,75 @@ def test_login_returns_429_after_rate_limit_threshold(client, monkeypatch):
         data={"username": "nobody", "password": "wrongpass12"},
     )
     assert r.status_code == 429
-    assert (r.headers.get("retry-after") or "") == "60"
+    j = r.json()
+    assert j.get("success") is False
+    assert j.get("message")
+    assert r.headers.get("Retry-After") or r.headers.get("retry-after")
+
+
+def test_login_account_blocked_after_repeated_failures(client, monkeypatch):
+    from app.core import auth_rate_limit as arl
+
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
+    monkeypatch.setattr(arl, "LOGIN_FAIL_MAX_PER_ACCOUNT", 2)
+    arl.reset_auth_rate_limit_memory_for_tests()
+    prefix = settings.API_V1_PREFIX
+    for _ in range(2):
+        assert client.post(
+            f"{prefix}/auth/login",
+            data={"username": "nobody", "password": "wrong"},
+        ).status_code == 401
+    r = client.post(
+        f"{prefix}/auth/login",
+        data={"username": "nobody", "password": "wrong"},
+    )
+    assert r.status_code == 429
+    assert r.json().get("success") is False
+
+
+def test_forgot_password_rate_limited_by_ip(client, monkeypatch):
+    from app.core import auth_rate_limit as arl
+
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
+    monkeypatch.setattr(arl, "FORGOT_PER_IP_PER_HOUR", 2)
+    monkeypatch.setattr(arl, "FORGOT_PER_EMAIL_PER_HOUR", 100)
+    arl.reset_auth_rate_limit_memory_for_tests()
+    prefix = settings.API_V1_PREFIX
+    for i in range(2):
+        r = client.post(
+            f"{prefix}/auth/forgot-password",
+            json={"email": f"fp{i}@example.com"},
+        )
+        assert r.status_code == 200, r.text
+    r3 = client.post(f"{prefix}/auth/forgot-password", json={"email": "fp9@example.com"})
+    assert r3.status_code == 429
+    assert r3.json().get("success") is False
+
+
+def test_rate_limit_writes_security_event(client, db_session, monkeypatch):
+    from sqlalchemy import func, select
+
+    from app.core import auth_rate_limit as arl
+    from app.models.security_event import SecurityEvent
+
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
+    monkeypatch.setattr(arl, "LOGIN_PER_IP_PER_MINUTE", 1)
+    arl.reset_auth_rate_limit_memory_for_tests()
+    prefix = settings.API_V1_PREFIX
+    assert (
+        client.post(
+            f"{prefix}/auth/login",
+            data={"username": "nobody", "password": "wrong"},
+        ).status_code
+        == 401
+    )
+    client.post(f"{prefix}/auth/login", data={"username": "nobody", "password": "wrong"})
+    db_session.expire_all()
+    n = int(db_session.scalar(select(func.count()).select_from(SecurityEvent)) or 0)
+    assert n >= 1
 
 
 def test_login_failure_includes_www_authenticate(client):
@@ -176,6 +249,7 @@ def test_openapi_contains_auth_and_me_paths_when_exposed(client):
         paths,
         f"{prefix}/auth/register",
         f"{prefix}/auth/login",
+        f"{prefix}/auth/forgot-password",
         f"{prefix}/auth/registration-options",
         f"{prefix}/users/me",
     )

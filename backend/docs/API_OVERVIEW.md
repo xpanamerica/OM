@@ -15,6 +15,9 @@
 | GET | `P/auth/registration-options` | **可匿名**；JSON：`invite_code_required`（平台是否强制邀请码注册） |
 | POST | `P/auth/register` | JSON：`email`、`username`、`password`（≥8 字符）；可选 `invite_code`。当后台开启内测邀请码时，未填或无效码返回 400 及对应文案；201 返回用户公开信息 |
 | POST | `P/auth/login` | `application/x-www-form-urlencoded`：`username`（可填用户名或邮箱）、`password`；200 返回 `access_token`、`token_type` |
+| POST | `P/auth/forgot-password` | **可匿名**；JSON：`email`；防枚举固定 200 文案；启用限流且超配额时 **429**，体为 `{"success":false,"message":"请求过于频繁，请稍后再试。"}` |
+
+认证限流（`AUTH_RATE_LIMIT_ENABLED=true` 且 Redis 可用时多实例一致）：注册按 IP 每分钟 3 次、每小时 10 次；登录按 IP 每分钟 5 次、同一账号 15 分钟内失败最多 5 次后拒绝；忘记密码按 IP 每小时 3 次、同一邮箱每小时 2 次。超限事件写入 `security_events` 表。
 
 ---
 

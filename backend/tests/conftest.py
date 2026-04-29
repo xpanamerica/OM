@@ -16,8 +16,9 @@ os.environ["COMMENT_RATE_LIMIT_USE_REDIS"] = "false"
 os.environ["VOD_REFRESH_UPLOAD_RATE_LIMIT_USE_REDIS"] = "false"
 os.environ["ATTACHMENT_POST_RATE_LIMIT_USE_REDIS"] = "false"
 os.environ["EXPOSE_PROMETHEUS_METRICS"] = "false"
-# 全量测试在同一进程内多次登录，关闭登录限流避免偶发 429
-os.environ["AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE"] = "0"
+# 认证限流：全量测试关闭，避免同一客户端 IP 在大量用例中触发 429
+os.environ["AUTH_RATE_LIMIT_ENABLED"] = "false"
+os.environ["AUTH_RATE_LIMIT_USE_REDIS"] = "false"
 # 绝大多数历史用例关注注册后的业务链路；专门的审核用例会单独开启该开关。
 os.environ["AUTH_REGISTRATION_REQUIRES_APPROVAL"] = "false"
 for k in ("FIRST_SUPERUSER_EMAIL", "FIRST_SUPERUSER_USERNAME", "FIRST_SUPERUSER_PASSWORD"):
@@ -70,8 +71,7 @@ from app.core.upload_rate_limit import (
     purge_video_upload_rate_limit_redis_keys_for_tests,
     reset_video_upload_rate_limit_state_for_tests,
 )
-from app.core.login_rate_limit import reset_login_rate_limit_state
-from app.core.register_rate_limit import reset_register_rate_limit_state
+from app.core.auth_rate_limit import purge_auth_rate_limit_redis_keys_for_tests, reset_auth_rate_limit_memory_for_tests
 from app.core.search_rate_limit import reset_search_rate_limit_state_for_tests
 
 import app.models  # noqa: F401 — 确保 User 等表注册到 metadata
@@ -85,13 +85,13 @@ from app.main import app
 
 
 @pytest.fixture(autouse=True)
-def _reset_login_rate_limit_between_tests():
+def _reset_auth_rate_limit_between_tests():
     reset_attachment_upload_rate_limit_for_tests()
     purge_attachment_upload_rate_limit_redis_keys_for_tests()
     reset_vod_refresh_upload_rate_limit_for_tests()
     purge_vod_refresh_upload_rate_limit_redis_keys_for_tests()
-    reset_login_rate_limit_state()
-    reset_register_rate_limit_state()
+    reset_auth_rate_limit_memory_for_tests()
+    purge_auth_rate_limit_redis_keys_for_tests()
     reset_search_rate_limit_state_for_tests()
     reset_comment_rate_limit_state()
     purge_comment_rate_limit_redis_keys_for_tests()
@@ -106,8 +106,8 @@ def _reset_login_rate_limit_between_tests():
     purge_attachment_upload_rate_limit_redis_keys_for_tests()
     reset_vod_refresh_upload_rate_limit_for_tests()
     purge_vod_refresh_upload_rate_limit_redis_keys_for_tests()
-    reset_login_rate_limit_state()
-    reset_register_rate_limit_state()
+    reset_auth_rate_limit_memory_for_tests()
+    purge_auth_rate_limit_redis_keys_for_tests()
     reset_search_rate_limit_state_for_tests()
     reset_comment_rate_limit_state()
     purge_comment_rate_limit_redis_keys_for_tests()

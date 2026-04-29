@@ -34,7 +34,8 @@ jobs:
           SECRET_KEY: unit-test-environment-default-secret-48b-min-ok!!
           DATABASE_URL: sqlite+pysqlite:///:memory:
           REDIS_URL: redis://127.0.0.1:6379/0
-          AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE: "0"
+          AUTH_RATE_LIMIT_ENABLED: "false"
+          AUTH_RATE_LIMIT_USE_REDIS: "false"
         run: pytest -q --tb=short
 
       - name: Byte-compile

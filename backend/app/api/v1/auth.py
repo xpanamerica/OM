@@ -1,22 +1,22 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.deps import DbSession
 from app.api.v1.http_cache_control import set_mutation_cache_control
+from app.core import auth_rate_limit
 from app.core.client_ip import resolved_client_ip
 from app.core.config import settings
-from app.core.exceptions import AppError
-from app.core.login_rate_limit import is_login_allowed
-from app.core.register_rate_limit import is_register_allowed
+from app.core.exceptions import AppError, AuthRateLimitExceeded
 from app.core.security_audit import (
     log_login_denied,
     log_login_rate_limited,
     log_register_conflict,
     log_register_rate_limited,
 )
-from app.schemas.auth import Token, UserRegister
+from app.repositories import security_event_repository
+from app.schemas.auth import ForgotPasswordIn, ForgotPasswordOut, Token, UserRegister
 from app.schemas.invite_codes import RegistrationOptionsOut
 from app.schemas.user import UserPublic
 from app.services import app_settings_service, auth_service
@@ -43,15 +43,16 @@ def registration_options(db: DbSession) -> RegistrationOptionsOut:
 )
 def register(request: Request, db: DbSession, body: UserRegister) -> UserPublic:
     ip = resolved_client_ip(request, trust_x_forwarded_for=settings.AUTH_TRUST_X_FORWARDED_FOR)
-    if not is_register_allowed(
-        ip, max_attempts_per_minute=settings.AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE
-    ):
+    ok, retry_after, which = auth_rate_limit.try_consume_register(ip)
+    if not ok:
         log_register_rate_limited(ip)
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="注册请求过于频繁，请稍后再试",
-            headers={"Retry-After": "60"},
+        security_event_repository.insert_event_sync(
+            event_type="rate_limit.auth.register",
+            ip_address=ip,
+            subject_hash=None,
+            detail=which,
         )
+        raise AuthRateLimitExceeded(retry_after=retry_after)
     ua = request.headers.get("user-agent") or request.headers.get("User-Agent")
     try:
         user = auth_service.register_user(db, body, client_ip=ip, user_agent=ua)
@@ -69,15 +70,26 @@ def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
 ) -> Token:
     ip = resolved_client_ip(request, trust_x_forwarded_for=settings.AUTH_TRUST_X_FORWARDED_FOR)
-    if not is_login_allowed(
-        ip, max_attempts_per_minute=settings.AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE
-    ):
+    ok, retry_after = auth_rate_limit.try_consume_login_ip(ip)
+    if not ok:
         log_login_rate_limited(ip)
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="登录请求过于频繁，请稍后再试",
-            headers={"Retry-After": "60"},
+        security_event_repository.insert_event_sync(
+            event_type="rate_limit.auth.login_ip",
+            ip_address=ip,
+            subject_hash=None,
+            detail="login_per_ip",
         )
+        raise AuthRateLimitExceeded(retry_after=retry_after)
+
+    if auth_rate_limit.is_login_account_blocked(form_data.username):
+        security_event_repository.insert_event_sync(
+            event_type="rate_limit.auth.login_account",
+            ip_address=ip,
+            subject_hash=auth_rate_limit.subject_fingerprint(form_data.username),
+            detail="login_failures_per_account",
+        )
+        raise AuthRateLimitExceeded()
+
     try:
         user = auth_service.authenticate_user(
             db, login_identifier=form_data.username, password=form_data.password
@@ -85,6 +97,31 @@ def login(
     except AppError as e:
         if e.status_code == 401:
             log_login_denied(ip)
+            auth_rate_limit.record_login_failure(form_data.username)
         raise
+    auth_rate_limit.clear_login_failures(form_data.username)
     access_token = auth_service.issue_token_for_user(user)
     return Token(access_token=access_token)
+
+
+@router.post(
+    "/forgot-password",
+    response_model=ForgotPasswordOut,
+    status_code=status.HTTP_200_OK,
+    summary="忘记密码（占位）",
+    description="防邮箱枚举：始终返回成功文案；实际发信逻辑可后续接入。启用限流时写 Redis。",
+    dependencies=[Depends(set_mutation_cache_control)],
+)
+def forgot_password(request: Request, body: ForgotPasswordIn) -> ForgotPasswordOut:
+    ip = resolved_client_ip(request, trust_x_forwarded_for=settings.AUTH_TRUST_X_FORWARDED_FOR)
+    email_norm = str(body.email).strip().lower()
+    ok, retry_after, which = auth_rate_limit.try_consume_forgot_password(ip, email_norm)
+    if not ok:
+        security_event_repository.insert_event_sync(
+            event_type="rate_limit.auth.forgot_password",
+            ip_address=ip,
+            subject_hash=auth_rate_limit.subject_fingerprint(email_norm),
+            detail=which,
+        )
+        raise AuthRateLimitExceeded(retry_after=retry_after)
+    return ForgotPasswordOut()

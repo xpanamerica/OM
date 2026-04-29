@@ -52,3 +52,26 @@ class UserRegister(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class ForgotPasswordIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    email: EmailStr
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def strip_email_fp(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip()
+        return v
+
+
+class ForgotPasswordOut(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    success: bool = True
+    message: str = Field(
+        default="若该邮箱已注册，您将收到一封包含说明的邮件。",
+        description="防邮箱枚举的固定文案。",
+    )

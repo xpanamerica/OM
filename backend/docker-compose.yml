@@ -46,8 +46,10 @@ services:
       SECRET_KEY: "${SECRET_KEY:?在 backend/.env 中设置 SECRET_KEY（UTF-8 至少 32 字节）；生成：bash scripts/init_local_compose_env.sh}"
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-videodb}}"
       REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
-      # 每 IP 每分钟登录 POST 次数上限；置于反代后且反代写 X-Forwarded-For 时可设 AUTH_TRUST_X_FORWARDED_FOR=true
-      AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE: "${AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE:-60}"
+      # 认证限流（注册/登录/忘记密码）：生产建议 true + Redis；本地大量调试可设 false
+      AUTH_RATE_LIMIT_ENABLED: "${AUTH_RATE_LIMIT_ENABLED:-true}"
+      AUTH_RATE_LIMIT_USE_REDIS: "${AUTH_RATE_LIMIT_USE_REDIS:-true}"
+      AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY: "${AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY:-true}"
       FIRST_SUPERUSER_EMAIL: "${FIRST_SUPERUSER_EMAIL:-admin@example.com}"
       FIRST_SUPERUSER_USERNAME: "${FIRST_SUPERUSER_USERNAME:-admin}"
       # 非 changeme，便于复制 compose 到 staging 前至少不会因默认密码触发配置拒绝（仍须在真环境替换）

@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 
+from app.core import config as config_module
 from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models.enums import UserRole
@@ -169,7 +170,13 @@ def test_register_rejects_expired_invite(client, db_session):
 
 
 def test_register_rate_limited_after_max_attempts(monkeypatch, client, db_session):
-    monkeypatch.setattr(settings, "AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE", 2)
+    from app.core import auth_rate_limit as arl
+
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
+    monkeypatch.setattr(arl, "REGISTER_PER_IP_PER_MINUTE", 2)
+    monkeypatch.setattr(arl, "REGISTER_PER_IP_PER_HOUR", 100)
+    arl.reset_auth_rate_limit_memory_for_tests()
 
     for i in range(2):
         r = client.post(
@@ -187,8 +194,8 @@ def test_register_rate_limited_after_max_attempts(monkeypatch, client, db_sessio
         json={"email": "rl3@example.com", "username": "rluser3", "password": "secret1234"},
     )
     assert r3.status_code == 429
-    assert r3.json()["detail"] == "注册请求过于频繁，请稍后再试"
-    assert r3.headers.get("Retry-After") == "60"
+    assert r3.json().get("success") is False
+    assert r3.json().get("message")
 
 
 def test_admin_list_registration_attempts_after_failed_register(client, db_session):

@@ -8,7 +8,7 @@
   • /docs 正常 — ``test_gate_03_openapi_docs_available``
   • 注册 / 登录 /me / 非法 token / 重复注册 / 非明文密码 — ``test_gate_04_auth_security_acceptance``
 
-说明：CI 与 ``conftest`` 将 ``AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE=0`` 关闭登录限流，避免与其它用例争抢同一客户端 IP 计数。
+说明：CI 与 ``conftest`` 将 ``AUTH_RATE_LIMIT_ENABLED=false`` 关闭认证限流，避免与其它用例争抢同一客户端 IP 计数。
 """
 
 from __future__ import annotations

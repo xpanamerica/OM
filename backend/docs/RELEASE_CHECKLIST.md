@@ -15,7 +15,7 @@
 - [ ] **`EXPOSE_OPENAPI_DOCS`**：生产默认关闭；若内网临时开启，已评估信息暴露风险。
 - [ ] **`EXPOSE_PROMETHEUS_METRICS`**：未对公网暴露 `/metrics`，或已加网络 ACL。
 - [ ] **`AUTH_TRUST_X_FORWARDED_FOR`**：仅在受信反代后开启；否则保持 `false`。
-- [ ] **`AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE`**：生产为合理正整数（如 60），非 `0`。
+- [ ] **`AUTH_RATE_LIMIT_ENABLED`**：生产为 `true`，且 **`REDIS_URL`** 可用；`AUTH_RATE_LIMIT_USE_REDIS=true`。
 
 ---
 

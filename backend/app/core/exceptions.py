@@ -16,6 +16,14 @@ from app.core.video_codes import VIDEO_CONFLICT_OPTIMISTIC
 logger = logging.getLogger("app.error")
 
 
+class AuthRateLimitExceeded(Exception):
+    """认证端点限流；由全局处理器返回统一 JSON 体。"""
+
+    def __init__(self, retry_after: int | None = None):
+        self.retry_after = retry_after
+        super().__init__("rate_limited")
+
+
 class AppError(Exception):
     def __init__(
         self,
@@ -33,6 +41,17 @@ class AppError(Exception):
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(AuthRateLimitExceeded)
+    async def auth_rate_limit_handler(_: Request, exc: AuthRateLimitExceeded):
+        headers: dict[str, str] = {}
+        if exc.retry_after is not None and exc.retry_after >= 1:
+            headers["Retry-After"] = str(int(exc.retry_after))
+        return JSONResponse(
+            status_code=429,
+            content={"success": False, "message": "请求过于频繁，请稍后再试。"},
+            headers=headers or None,
+        )
+
     @app.exception_handler(StaleDataError)
     async def stale_data_handler(_: Request, exc: StaleDataError):
         _ = exc

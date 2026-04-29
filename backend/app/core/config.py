@@ -89,11 +89,20 @@ class Settings(BaseSettings):
         ),
     )
 
-    AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE: int = Field(
-        default=0,
-        ge=0,
-        le=10_000,
-        description="按解析客户端 IP 限制 POST /auth/login 次数/分钟；0 关闭（测试常用）。生产建议 30–120。",
+    AUTH_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "启用认证端点生产级限流（注册/登录/忘记密码）；"
+            "单测与 CI 通常通过环境变量设为 false。"
+        ),
+    )
+    AUTH_RATE_LIMIT_USE_REDIS: bool = Field(
+        default=True,
+        description="为 True 且 Redis 可达时，认证限流计数存 Redis（多 worker 一致）。",
+    )
+    AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY: bool = Field(
+        default=True,
+        description="Redis 限流调用失败时是否回退进程内滑动窗口；生产若要求严格一致可关（将抛错）。",
     )
     AUTH_TRUST_X_FORWARDED_FOR: bool = Field(
         default=False,
@@ -103,16 +112,6 @@ class Settings(BaseSettings):
         default=True,
         description="为 True 时，公开注册用户默认未启用，需后台管理员审核启用后才能登录。",
     )
-    AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE: int = Field(
-        default=0,
-        ge=0,
-        le=10_000,
-        description=(
-            "按解析客户端 IP 限制 POST /auth/register 次数/分钟；0 关闭（测试常用）。"
-            "生产建议 20–60，减轻撞库与邀请码枚举。"
-        ),
-    )
-
     COMMENT_POST_MAX_PER_VIDEO_PER_MINUTE: int = Field(
         default=12,
         ge=0,

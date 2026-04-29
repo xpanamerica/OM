@@ -171,7 +171,8 @@ services:
 | `REDIS_URL` | 生产 Redis 连接串 |
 | `CORS_ORIGINS` | **逗号分隔**的前端 Origin 列表；生产类环境**禁止**仅为 `*` |
 | `EXPOSE_OPENAPI_DOCS` | 默认生产关文档；若内网需要可显式 `true` |
-| `AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE` | 建议 30–120；`0` 为关闭 |
+| `AUTH_RATE_LIMIT_ENABLED` | 生产建议 `true`（注册/登录/忘记密码配额见实现）；本地/单测常 `false` |
+| `AUTH_RATE_LIMIT_USE_REDIS` / `AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY` | 多实例须 `USE_REDIS=true`；生产可关回退以在 Redis 故障时快速失败 |
 | `LOG_LEVEL` | `INFO` 或 `WARNING` |
 
 可选：`FIRST_SUPERUSER_*`（仅首次建库）、`EXPOSE_PROMETHEUS_METRICS`、`COMMENT_*`、`AUTH_TRUST_X_FORWARDED_FOR`（仅当反代可信且写入 `X-Forwarded-For` 时启用）。

@@ -1,6 +1,19 @@
 {
   "files.autoSave": "onFocusChange",
   "explorer.excludeGitIgnore": true,
+  "files.exclude": {
+    "**/.cache": true,
+    "**/.env": true,
+    "**/.env.local": true,
+    "**/.env.*.local": true,
+    "**/.env.local-beta": true,
+    "**/.pytest_cache": true,
+    "**/__pycache__": true,
+    "**/dist": true,
+    "**/node_modules": true,
+    "backend/data": true,
+    "deploy/cloudflare-tunnel/.env": true
+  },
   "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
   "python.condaPath": "${env:HOME}/software/anaconda3/bin/conda",
   "python.terminal.activateEnvironment": true,

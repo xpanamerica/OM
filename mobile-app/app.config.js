@@ -7,6 +7,10 @@ const appJson = require("./app.json");
 
 const apiBaseUrl =
   (process.env.EXPO_PUBLIC_API_BASE_URL && String(process.env.EXPO_PUBLIC_API_BASE_URL).trim()) || "";
+const turnstileSiteKey =
+  (process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY && String(process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY).trim()) || "";
+const turnstileOrigin =
+  (process.env.EXPO_PUBLIC_TURNSTILE_ORIGIN && String(process.env.EXPO_PUBLIC_TURNSTILE_ORIGIN).trim()) || "";
 
 module.exports = {
   expo: {
@@ -14,6 +18,8 @@ module.exports = {
     extra: {
       ...(appJson.expo.extra || {}),
       apiBaseUrl,
+      turnstileSiteKey,
+      turnstileOrigin,
     },
   },
 };

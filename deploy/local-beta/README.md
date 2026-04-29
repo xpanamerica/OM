@@ -261,6 +261,14 @@ Cloudflare Tunnel 推荐直接使用仓库内专用说明：**[`../cloudflare-tu
 - `API_PUBLIC_BASE_URL=https://app.example.com/api/v1`
 - 一键验证脚本 `deploy/cloudflare-tunnel/verify_cloudflare_tunnel.sh`
 
+注册/登录已接入 Cloudflare Turnstile：
+
+- 前端只配置公开的 `VITE_TURNSTILE_SITE_KEY`。
+- 后端只配置私密的 `TURNSTILE_SECRET`。
+- 注册必须通过 Turnstile；登录同一账号连续失败 3 次后必须通过 Turnstile。
+- 生产建议设置 `TURNSTILE_ALLOWED_HOSTNAMES=app.example.com,admin.example.com`，后端会校验 Siteverify 返回来源与 `action=register/login`。
+- `TURNSTILE_BYPASS=true` 仅允许 `NODE_ENV=test`，不要用于外测或生产。
+
 ### Cloudflare Tunnel（quick tunnel）
 
 多数 Linux 发行版 **`apt install cloudflared` 会报找不到包**，请从 [GitHub Releases](https://github.com/cloudflare/cloudflared/releases/latest) 下载 `cloudflared-linux-amd64`（或 `arm64`）到 `~/.local/bin` 或 `/usr/local/bin` 并 `chmod +x`；详见 **`GUIDE_新手一步一步_外测注册登录.md`** 第七节 A1。

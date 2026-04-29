@@ -10,7 +10,9 @@ import {
 } from "react-native";
 import { colors } from "../theme/tokens";
 import { login } from "../api/auth";
-import { getApiBaseUrl, LAN_DEPLOY_HINT } from "../config/env";
+import { ApiHttpError } from "../api/client";
+import { getApiBaseUrl, getTurnstileOrigin, getTurnstileSiteKey, LAN_DEPLOY_HINT } from "../config/env";
+import { TurnstileChallenge } from "./TurnstileChallenge";
 
 type Props = {
   /** 登录成功并取得 access_token 后调用（由外层写入 SecureStore / 导航） */
@@ -29,14 +31,31 @@ export function LoginFormCard({ onSuccess, showCancel, onCancel, variant = "scre
   const [p, setP] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [failedCount, setFailedCount] = useState(0);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const showTurnstile = failedCount >= 3;
+  const turnstileSiteKey = getTurnstileSiteKey();
+  const turnstileOrigin = getTurnstileOrigin();
 
   async function submit() {
+    if (showTurnstile && !turnstileToken) {
+      setErr(turnstileSiteKey ? "请先完成人机验证。" : "人机验证暂未配置，请联系管理员。");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
-      const { access_token } = await login(u.trim(), p);
+      const { access_token } = await login(u.trim(), p, showTurnstile ? turnstileToken : undefined);
+      setFailedCount(0);
+      setTurnstileToken("");
       await onSuccess(access_token);
     } catch (e) {
+      if (e instanceof ApiHttpError && (e.code === "TURNSTILE_REQUIRED" || e.code === "TURNSTILE_INVALID")) {
+        setFailedCount((n) => Math.max(n, 3));
+      } else {
+        setFailedCount((n) => n + 1);
+      }
+      setTurnstileToken("");
       setErr(String(e));
     } finally {
       setBusy(false);
@@ -77,6 +96,15 @@ export function LoginFormCard({ onSuccess, showCancel, onCancel, variant = "scre
           placeholder="••••••••"
           placeholderTextColor={colors.textMuted}
         />
+        {showTurnstile ? (
+          <TurnstileChallenge
+            siteKey={turnstileSiteKey}
+            origin={turnstileOrigin}
+            action="login"
+            onToken={setTurnstileToken}
+            onError={setErr}
+          />
+        ) : null}
         {err ? <Text style={styles.err}>{err}</Text> : null}
         <Pressable onPress={submit} disabled={busy} style={[styles.btn, busy && styles.dis]}>
           <Text style={styles.btnTxt}>{busy ? "登录中…" : "登录"}</Text>

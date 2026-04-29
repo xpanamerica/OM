@@ -4,10 +4,13 @@ import type { UserPublic } from "./users";
 export type TokenResponse = { access_token: string; token_type: string };
 
 /** 与 ``OAuth2PasswordRequestForm`` 一致：表单字段名为 ``username``，值可为 **用户名或邮箱**（后端 ``login_identifier``）。 */
-export async function login(username: string, password: string): Promise<TokenResponse> {
+export async function login(username: string, password: string, turnstileToken?: string): Promise<TokenResponse> {
   const body = new URLSearchParams();
   body.set("username", username);
   body.set("password", password);
+  if (turnstileToken) {
+    body.set("turnstile_token", turnstileToken);
+  }
   const { data } = await http.post<TokenResponse>("/auth/login", body, {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
@@ -19,6 +22,7 @@ export type RegisterBody = {
   email: string;
   username: string;
   password: string;
+  turnstile_token?: string | null;
   invite_code?: string | null;
 };
 

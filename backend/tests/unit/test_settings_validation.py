@@ -249,6 +249,39 @@ def test_trending_weights_sum_must_be_positive():
         )
 
 
+def test_turnstile_bypass_requires_node_env_test():
+    with pytest.raises(ValidationError, match="TURNSTILE_BYPASS"):
+        Settings(
+            SECRET_KEY="a" * 32,
+            DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/videodb",
+            REDIS_URL="redis://127.0.0.1:6379/0",
+            TURNSTILE_BYPASS=True,
+            NODE_ENV="development",
+        )
+
+
+def test_turnstile_bypass_allowed_in_node_env_test():
+    s = Settings(
+        SECRET_KEY="a" * 32,
+        DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/videodb",
+        REDIS_URL="redis://127.0.0.1:6379/0",
+        TURNSTILE_BYPASS=True,
+        NODE_ENV="test",
+    )
+    assert s.TURNSTILE_BYPASS is True
+    assert s.NODE_ENV == "test"
+
+
+def test_turnstile_allowed_hostnames_comma_string_parsed():
+    s = Settings(
+        SECRET_KEY="a" * 32,
+        DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/videodb",
+        REDIS_URL="redis://127.0.0.1:6379/0",
+        TURNSTILE_ALLOWED_HOSTNAMES="App.Example.com, admin.example.com ",
+    )
+    assert s.TURNSTILE_ALLOWED_HOSTNAMES == ["app.example.com", "admin.example.com"]
+
+
 def test_security_hsts_max_age_default_zero():
     s = Settings(
         SECRET_KEY="a" * 32,

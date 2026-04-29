@@ -190,6 +190,28 @@ class Settings(BaseSettings):
             "便于生产单独设为 20–60 等运营值而不改通用限流默认值。"
         ),
     )
+    TURNSTILE_SECRET: SecretStr | None = Field(
+        default=None,
+        description="Cloudflare Turnstile 服务端 secret，仅后端读取；勿下发前端。",
+    )
+    TURNSTILE_BYPASS: bool = Field(
+        default=False,
+        description="测试环境绕过 Turnstile 校验；仅允许 NODE_ENV=test。",
+    )
+    NODE_ENV: str = Field(
+        default="",
+        description="前后端测试约定环境名；TURNSTILE_BYPASS=true 时必须为 test。",
+    )
+    TURNSTILE_LOGIN_FAILURE_THRESHOLD: int = Field(
+        default=3,
+        ge=1,
+        le=100,
+        description="同一登录标识连续失败达到该次数后，登录必须提交 Turnstile token。",
+    )
+    TURNSTILE_ALLOWED_HOSTNAMES: list[str] = Field(
+        default_factory=list,
+        description="可选。Siteverify 返回 hostname 时必须命中该白名单；为空则不校验 hostname。",
+    )
     AUTH_TRUST_X_FORWARDED_FOR: bool = Field(
         default=False,
         description="为 True 时用 X-Forwarded-For 最左侧作为客户端 IP（仅置于受信反代之后开启）",
@@ -509,6 +531,42 @@ class Settings(BaseSettings):
                 "AUTH_RATE_LIMIT_REGISTER_HOUR_WINDOW_SECONDS 须大于等于 AUTH_RATE_LIMIT_REGISTER_MINUTE_WINDOW_SECONDS"
             )
         return self
+
+    @model_validator(mode="after")
+    def turnstile_bypass_only_in_node_test(self) -> Self:
+        if self.TURNSTILE_BYPASS and (self.NODE_ENV or "").strip().lower() != "test":
+            raise ValueError("TURNSTILE_BYPASS=true 仅允许在 NODE_ENV=test 时使用")
+        return self
+
+    @field_validator("TURNSTILE_SECRET", mode="before")
+    @classmethod
+    def empty_turnstile_secret_none(cls, v: Any) -> Any:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return v
+
+    @field_validator("NODE_ENV", mode="before")
+    @classmethod
+    def normalize_node_env(cls, v: Any) -> Any:
+        if v is None:
+            return ""
+        if isinstance(v, str):
+            return v.strip().lower()
+        return str(v).strip().lower()
+
+    @field_validator("TURNSTILE_ALLOWED_HOSTNAMES", mode="before")
+    @classmethod
+    def parse_turnstile_allowed_hostnames(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return []
+            return [p.strip().lower() for p in s.split(",") if p.strip()]
+        if isinstance(v, (list, tuple)):
+            return [str(x).strip().lower() for x in v if str(x).strip()]
+        raise ValueError("TURNSTILE_ALLOWED_HOSTNAMES 须为逗号分隔字符串或字符串列表")
 
     @model_validator(mode="after")
     def password_reset_smtp_requires_host_from_and_template(self) -> Self:

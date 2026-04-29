@@ -50,8 +50,8 @@ export const useAuthStore = defineStore("auth", () => {
     return me;
   }
 
-  async function login(username: string, password: string) {
-    const { access_token } = await authApi.login(username, password);
+  async function login(username: string, password: string, turnstileToken?: string) {
+    const { access_token } = await authApi.login(username, password, turnstileToken);
     setToken(access_token);
     const me = await fetchMe();
     if (me.role !== "admin") {

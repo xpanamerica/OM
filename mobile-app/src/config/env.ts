@@ -4,7 +4,7 @@ import Constants from "expo-constants";
 
 const DEV_BACKEND_PORT = 8000;
 
-type Extra = { apiBaseUrl?: string };
+type Extra = { apiBaseUrl?: string; turnstileSiteKey?: string; turnstileOrigin?: string };
 
 function fromExtra(): string {
   const extra = Constants.expoConfig?.extra as Extra | undefined;
@@ -14,6 +14,16 @@ function fromExtra(): string {
 function fromEnv(): string {
   if (typeof process === "undefined" || !process.env) return "";
   return (process.env.EXPO_PUBLIC_API_BASE_URL ?? "").trim();
+}
+
+function turnstileSiteKeyFromEnv(): string {
+  if (typeof process === "undefined" || !process.env) return "";
+  return (process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY ?? "").trim();
+}
+
+function turnstileOriginFromEnv(): string {
+  if (typeof process === "undefined" || !process.env) return "";
+  return (process.env.EXPO_PUBLIC_TURNSTILE_ORIGIN ?? "").trim();
 }
 
 /** 开发模式下最近一次因非法而忽略的显式 API 配置（用于 Feed 提示） */
@@ -210,6 +220,23 @@ export function hasConfiguredApiBase(): boolean {
 
 export function isInsecureHttpApi(): boolean {
   return getApiBaseUrl().toLowerCase().startsWith("http://");
+}
+
+export function getTurnstileSiteKey(): string {
+  const extra = Constants.expoConfig?.extra as Extra | undefined;
+  return (extra?.turnstileSiteKey ?? turnstileSiteKeyFromEnv()).trim();
+}
+
+export function getTurnstileOrigin(): string {
+  const extra = Constants.expoConfig?.extra as Extra | undefined;
+  const configured = (extra?.turnstileOrigin ?? turnstileOriginFromEnv()).trim();
+  if (configured) return configured.replace(/\/$/, "");
+  try {
+    const api = new URL(getApiBaseUrl());
+    return `${api.protocol}//${api.host}`;
+  } catch {
+    return "https://app.omhengpin.com";
+  }
 }
 
 export function shouldWarnLanMisconfig(): boolean {

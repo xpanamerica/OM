@@ -42,6 +42,32 @@ async function fetchOrExplain(url: string, init: RequestInit): Promise<Response>
 
 export type ApiFetchInit = RequestInit & { token?: string | null; skipAuth?: boolean };
 
+export class ApiHttpError extends Error {
+  status: number;
+  path: string;
+  code: string | null;
+  detail: string | null;
+
+  constructor(status: number, path: string, text: string) {
+    let code: string | null = null;
+    let detail: string | null = null;
+    try {
+      const body = JSON.parse(text) as { code?: unknown; detail?: unknown; message?: unknown };
+      if (typeof body.code === "string") code = body.code;
+      if (typeof body.detail === "string") detail = body.detail;
+      else if (typeof body.message === "string") detail = body.message;
+    } catch {
+      /* 非 JSON 错误体保留原始片段 */
+    }
+    super(detail ? `${detail}${code ? `（${code}）` : ""}` : `HTTP ${status} ${path}: ${text.slice(0, 200)}`);
+    this.name = "ApiHttpError";
+    this.status = status;
+    this.path = path;
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
 export function getResolvedApiBaseUrl(): string {
   return baseUrl();
 }
@@ -146,7 +172,7 @@ export async function apiPostForm<T>(
   const res = await fetchOrExplain(url, { ...init, method: "POST", headers, body: body.toString() });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${path}: ${text.slice(0, 200)}`);
+    throw new ApiHttpError(res.status, path, text);
   }
   const data = (await res.json()) as T;
   return { data, headers: res.headers };

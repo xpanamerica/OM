@@ -47,6 +47,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SearchResultsDesktopTable: typeof import('./src/components/desktop/SearchResultsDesktopTable.vue')['default']
+    TurnstileWidget: typeof import('./src/components/TurnstileWidget.vue')['default']
     VideoCommentsDesktopTable: typeof import('./src/components/desktop/VideoCommentsDesktopTable.vue')['default']
     VideoListDesktopTable: typeof import('./src/components/desktop/VideoListDesktopTable.vue')['default']
   }

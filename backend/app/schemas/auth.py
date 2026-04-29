@@ -6,6 +6,11 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 class UserRegister(BaseModel):
     email: EmailStr
     username: str = Field(min_length=2, max_length=64)
+    turnstile_token: str | None = Field(
+        default=None,
+        max_length=4096,
+        description="Cloudflare Turnstile 前端 widget 返回的短期 token。",
+    )
     invite_code: str | None = Field(
         default=None,
         max_length=128,
@@ -34,6 +39,16 @@ class UserRegister(BaseModel):
     @field_validator("invite_code", mode="before")
     @classmethod
     def strip_invite_code(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s or None
+        return v
+
+    @field_validator("turnstile_token", mode="before")
+    @classmethod
+    def strip_turnstile_token(cls, v: Any) -> Any:
         if v is None:
             return None
         if isinstance(v, str):

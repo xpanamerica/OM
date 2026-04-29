@@ -19,6 +19,9 @@ os.environ["EXPOSE_PROMETHEUS_METRICS"] = "false"
 # 认证限流：全量测试关闭，避免同一客户端 IP 在大量用例中触发 429
 os.environ["AUTH_RATE_LIMIT_ENABLED"] = "false"
 os.environ["AUTH_RATE_LIMIT_USE_REDIS"] = "false"
+# Turnstile：历史认证用例默认绕过；专门用例会关闭 bypass 并 mock Siteverify。
+os.environ["NODE_ENV"] = "test"
+os.environ["TURNSTILE_BYPASS"] = "true"
 # 绝大多数历史用例关注注册后的业务链路；专门的审核用例会单独开启该开关。
 os.environ["AUTH_REGISTRATION_REQUIRES_APPROVAL"] = "false"
 for k in ("FIRST_SUPERUSER_EMAIL", "FIRST_SUPERUSER_USERNAME", "FIRST_SUPERUSER_PASSWORD"):

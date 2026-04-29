@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import axios from "axios";
 import { ElMessage } from "@/util/elementPlusMessage";
 import { useAuthStore } from "@/stores/auth";
 import * as authApi from "@/api/auth";
 import { formatApiError } from "@/util/errors";
 import { useIsMobile } from "@/composables/useIsMobile";
 import MobileTabBar from "@/components/MobileTabBar.vue";
+import TurnstileWidget from "@/components/TurnstileWidget.vue";
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -15,10 +17,35 @@ const { isMobile } = useIsMobile();
 
 const tab = ref<"login" | "register">("login");
 const loading = ref(false);
+const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? "";
 
 const loginForm = reactive({ username: "", password: "" });
 const regForm = reactive({ email: "", username: "", password: "", invite_code: "" });
 const inviteRequired = ref(false);
+const loginFailedCount = ref(0);
+const loginTurnstileToken = ref("");
+const registerTurnstileToken = ref("");
+const loginTurnstile = ref<InstanceType<typeof TurnstileWidget> | null>(null);
+const registerTurnstile = ref<InstanceType<typeof TurnstileWidget> | null>(null);
+const showLoginTurnstile = computed(() => loginFailedCount.value >= 3);
+
+function requireTurnstileToken(token: string) {
+  if (!turnstileSiteKey) {
+    ElMessage.error("人机验证暂未配置，请联系管理员。");
+    return false;
+  }
+  if (!token) {
+    ElMessage.error("请先完成人机验证。");
+    return false;
+  }
+  return true;
+}
+
+function apiErrorCode(err: unknown): string | null {
+  if (!axios.isAxiosError(err)) return null;
+  const code = (err.response?.data as { code?: unknown } | undefined)?.code;
+  return typeof code === "string" ? code : null;
+}
 
 async function loadRegistrationOptions() {
   try {
@@ -30,13 +57,26 @@ async function loadRegistrationOptions() {
 }
 
 async function onLogin() {
+  if (showLoginTurnstile.value && !requireTurnstileToken(loginTurnstileToken.value)) {
+    return;
+  }
   loading.value = true;
   try {
-    await auth.login(loginForm.username, loginForm.password);
+    await auth.login(loginForm.username, loginForm.password, showLoginTurnstile.value ? loginTurnstileToken.value : undefined);
+    loginFailedCount.value = 0;
+    loginTurnstileToken.value = "";
     const r = typeof route.query.redirect === "string" ? route.query.redirect : "/";
     await router.replace(r || "/");
     ElMessage.success("登录成功");
   } catch (e) {
+    const code = apiErrorCode(e);
+    if (code === "TURNSTILE_REQUIRED" || code === "TURNSTILE_INVALID") {
+      loginFailedCount.value = Math.max(loginFailedCount.value, 3);
+    } else {
+      loginFailedCount.value += 1;
+    }
+    loginTurnstileToken.value = "";
+    loginTurnstile.value?.reset();
     ElMessage.error(formatApiError(e));
   } finally {
     loading.value = false;
@@ -44,12 +84,16 @@ async function onLogin() {
 }
 
 async function onRegister() {
+  if (!requireTurnstileToken(registerTurnstileToken.value)) {
+    return;
+  }
   loading.value = true;
   try {
     const body: authApi.RegisterBody = {
       email: regForm.email,
       username: regForm.username,
       password: regForm.password,
+      turnstile_token: registerTurnstileToken.value,
     };
     const ic = regForm.invite_code.trim();
     if (ic) {
@@ -59,12 +103,25 @@ async function onRegister() {
     ElMessage.success("注册已提交，请等待后台验证通过后再登录");
     tab.value = "login";
     loginForm.username = regForm.username;
+    registerTurnstileToken.value = "";
+    registerTurnstile.value?.reset();
   } catch (e) {
+    registerTurnstileToken.value = "";
+    registerTurnstile.value?.reset();
     ElMessage.error(formatApiError(e));
   } finally {
     loading.value = false;
   }
 }
+
+watch(
+  () => loginForm.username,
+  () => {
+    loginFailedCount.value = 0;
+    loginTurnstileToken.value = "";
+    loginTurnstile.value?.reset();
+  },
+);
 
 onMounted(() => {
   void loadRegistrationOptions();
@@ -87,6 +144,18 @@ onMounted(() => {
               </el-form-item>
               <el-form-item label="密码">
                 <el-input v-model="loginForm.password" type="password" show-password autocomplete="current-password" />
+              </el-form-item>
+              <el-form-item v-if="showLoginTurnstile" label="验证">
+                <TurnstileWidget
+                  v-if="turnstileSiteKey"
+                  ref="loginTurnstile"
+                  :sitekey="turnstileSiteKey"
+                  action="login"
+                  @verified="(token) => (loginTurnstileToken = token)"
+                  @expired="loginTurnstileToken = ''"
+                  @error="loginTurnstileToken = ''"
+                />
+                <p v-else class="reg-hint">人机验证暂未配置，请联系管理员。</p>
               </el-form-item>
               <el-form-item>
                 <el-button type="primary" native-type="submit" :loading="loading">登录</el-button>
@@ -116,6 +185,18 @@ onMounted(() => {
                   :placeholder="inviteRequired ? '内测必填' : '内测选填（平台开启校验时必填）'"
                 />
                 <p v-if="inviteRequired" class="reg-hint">当前为内测阶段，注册需要有效邀请码。</p>
+              </el-form-item>
+              <el-form-item label="验证">
+                <TurnstileWidget
+                  v-if="turnstileSiteKey"
+                  ref="registerTurnstile"
+                  :sitekey="turnstileSiteKey"
+                  action="register"
+                  @verified="(token) => (registerTurnstileToken = token)"
+                  @expired="registerTurnstileToken = ''"
+                  @error="registerTurnstileToken = ''"
+                />
+                <p v-else class="reg-hint">人机验证暂未配置，请联系管理员。</p>
               </el-form-item>
               <el-form-item>
                 <el-button type="primary" native-type="submit" :loading="loading">注册</el-button>

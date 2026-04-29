@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.deps import DbSession
@@ -26,7 +26,7 @@ from app.schemas.auth import (
 )
 from app.schemas.invite_codes import RegistrationOptionsOut
 from app.schemas.user import UserPublic
-from app.services import app_settings_service, auth_service, password_reset_service
+from app.services import app_settings_service, auth_service, password_reset_service, turnstile_service
 
 router = APIRouter()
 
@@ -60,6 +60,7 @@ def register(request: Request, db: DbSession, body: UserRegister) -> UserPublic:
             detail=which,
         )
         raise AuthRateLimitExceeded(retry_after=retry_after)
+    turnstile_service.verify_turnstile_token(body.turnstile_token, remote_ip=ip, expected_action="register")
     ua = request.headers.get("user-agent") or request.headers.get("User-Agent")
     try:
         user = auth_service.register_user(db, body, client_ip=ip, user_agent=ua)
@@ -75,6 +76,7 @@ def login(
     request: Request,
     db: DbSession,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    turnstile_token: Annotated[str | None, Form()] = None,
 ) -> Token:
     ip = resolved_client_ip(request, trust_x_forwarded_for=settings.AUTH_TRUST_X_FORWARDED_FOR)
     ok, retry_after = auth_rate_limit.try_consume_login_ip(ip)
@@ -97,6 +99,9 @@ def login(
             detail="login_failures_per_account",
         )
         raise AuthRateLimitExceeded()
+
+    if auth_rate_limit.login_account_failure_count(form_data.username) >= settings.TURNSTILE_LOGIN_FAILURE_THRESHOLD:
+        turnstile_service.verify_turnstile_token(turnstile_token, remote_ip=ip, expected_action="login")
 
     try:
         user = auth_service.authenticate_user(

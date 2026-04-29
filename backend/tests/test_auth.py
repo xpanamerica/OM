@@ -1,8 +1,10 @@
 from sqlalchemy import select
+from pydantic import SecretStr
 
 from app.core import config as config_module
 from app.core.config import settings
 from app.models.user import User
+from app.services import turnstile_service
 from tests.support.openapi_contracts import assert_openapi_paths, collect_operation_tags, openapi_skip_unless_exposed
 
 
@@ -83,6 +85,211 @@ def test_register_strips_username_and_email(client):
     body = r.json()
     assert body["email"] == "mixedcase@example.com"
     assert body["username"] == "stripuser"
+
+
+def test_register_requires_turnstile_token_when_bypass_disabled(client, monkeypatch):
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_BYPASS", False)
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_SECRET", SecretStr("turnstile-test-secret"))
+    prefix = settings.API_V1_PREFIX
+    r = client.post(
+        f"{prefix}/auth/register",
+        json={
+            "email": "turnstile-missing@example.com",
+            "username": "turnstilemissing",
+            "password": "secret1234",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == turnstile_service.TURNSTILE_REQUIRED_CODE
+
+
+def test_register_rejects_invalid_turnstile_token(client, monkeypatch):
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"success": False, "error-codes": ["invalid-input-response"]}
+
+    class _Client:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, data):
+            assert data["secret"] == "turnstile-test-secret"
+            assert data["response"] == "bad-token"
+            return _Response()
+
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_BYPASS", False)
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_SECRET", SecretStr("turnstile-test-secret"))
+    monkeypatch.setattr(turnstile_service.httpx, "Client", _Client)
+    prefix = settings.API_V1_PREFIX
+    r = client.post(
+        f"{prefix}/auth/register",
+        json={
+            "email": "turnstile-invalid@example.com",
+            "username": "turnstileinvalid",
+            "password": "secret1234",
+            "turnstile_token": "bad-token",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == turnstile_service.TURNSTILE_INVALID_CODE
+
+
+def test_register_rejects_turnstile_hostname_mismatch(client, monkeypatch):
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"success": True, "hostname": "evil.example", "action": "register"}
+
+    class _Client:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, data):
+            return _Response()
+
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_BYPASS", False)
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_SECRET", SecretStr("turnstile-test-secret"))
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_ALLOWED_HOSTNAMES", ["app.example.com"])
+    monkeypatch.setattr(turnstile_service.httpx, "Client", _Client)
+    prefix = settings.API_V1_PREFIX
+    r = client.post(
+        f"{prefix}/auth/register",
+        json={
+            "email": "turnstile-host@example.com",
+            "username": "turnstilehost",
+            "password": "secret1234",
+            "turnstile_token": "host-token",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == turnstile_service.TURNSTILE_HOSTNAME_INVALID_CODE
+
+
+def test_register_rejects_turnstile_action_mismatch(client, monkeypatch):
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"success": True, "hostname": "app.example.com", "action": "login"}
+
+    class _Client:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, data):
+            return _Response()
+
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_BYPASS", False)
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_SECRET", SecretStr("turnstile-test-secret"))
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_ALLOWED_HOSTNAMES", ["app.example.com"])
+    monkeypatch.setattr(turnstile_service.httpx, "Client", _Client)
+    prefix = settings.API_V1_PREFIX
+    r = client.post(
+        f"{prefix}/auth/register",
+        json={
+            "email": "turnstile-action@example.com",
+            "username": "turnstileaction",
+            "password": "secret1234",
+            "turnstile_token": "action-token",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == turnstile_service.TURNSTILE_ACTION_INVALID_CODE
+
+
+def test_login_requires_turnstile_after_three_failures(client, monkeypatch):
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"success": True, "hostname": "app.example.com", "action": "login"}
+
+    class _Client:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, data):
+            assert data["response"] == "ok-token"
+            return _Response()
+
+    prefix = settings.API_V1_PREFIX
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_BYPASS", True)
+    monkeypatch.setattr(config_module.settings, "AUTH_REGISTRATION_REQUIRES_APPROVAL", False)
+    r = client.post(
+        f"{prefix}/auth/register",
+        json={
+            "email": "turnstile-login@example.com",
+            "username": "turnstilelogin",
+            "password": "secret1234",
+        },
+    )
+    assert r.status_code == 201, r.text
+
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE", 100)
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_LOGIN_FAILURE_THRESHOLD", 3)
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_BYPASS", False)
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_SECRET", SecretStr("turnstile-test-secret"))
+    monkeypatch.setattr(config_module.settings, "TURNSTILE_ALLOWED_HOSTNAMES", ["app.example.com"])
+    monkeypatch.setattr(turnstile_service.httpx, "Client", _Client)
+    from app.core.auth_rate_limit import reset_auth_rate_limit_memory_for_tests
+
+    reset_auth_rate_limit_memory_for_tests()
+    for _ in range(3):
+        bad = client.post(
+            f"{prefix}/auth/login",
+            data={"username": "turnstilelogin", "password": "wrongpass"},
+        )
+        assert bad.status_code == 401
+
+    missing = client.post(
+        f"{prefix}/auth/login",
+        data={"username": "turnstilelogin", "password": "secret1234"},
+    )
+    assert missing.status_code == 400
+    assert missing.json()["code"] == turnstile_service.TURNSTILE_REQUIRED_CODE
+
+    ok = client.post(
+        f"{prefix}/auth/login",
+        data={
+            "username": "turnstilelogin",
+            "password": "secret1234",
+            "turnstile_token": "ok-token",
+        },
+    )
+    assert ok.status_code == 200, ok.text
 
 
 def test_register_requires_admin_approval_when_enabled(client, db_session, monkeypatch):

@@ -53,6 +53,11 @@ def test_non_admin_all_admin_endpoints_return_403(client, db_session):
     base = f"{settings.API_V1_PREFIX}/admin"
     assert client.get(f"{base}/videos", headers=hdr).status_code == 403
     assert client.get(f"{base}/users", headers=hdr).status_code == 403
+    assert client.get(f"{base}/invite-codes", headers=hdr).status_code == 403
+    assert client.post(f"{base}/invite-codes", headers=hdr, json={"max_uses": 1}).status_code == 403
+    assert (
+        client.post(f"{base}/invite-codes/{uuid.uuid4()}/revoke", headers=hdr).status_code == 403
+    )
     assert client.get(f"{base}/statistics/platform", headers=hdr).status_code == 403
     uid = str(uuid.uuid4())
     assert client.patch(f"{base}/users/{uid}/active", headers=hdr, json={"is_active": False}).status_code == 403
@@ -151,6 +156,8 @@ def test_openapi_contains_admin_routes_when_exposed(client):
         paths,
         f"{prefix}/admin/videos",
         f"{prefix}/admin/users",
+        f"{prefix}/admin/invite-codes",
+        f"{prefix}/admin/invite-codes/{{invite_id}}/revoke",
         f"{prefix}/admin/statistics/platform",
         f"{prefix}/admin/users/{{user_id}}/active",
         f"{prefix}/admin/users/{{user_id}}",

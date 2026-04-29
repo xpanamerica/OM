@@ -7,10 +7,12 @@ from app.models.direct_message import DirectConversation, DirectMessage, DirectM
 from app.models.ai_job import AiJob
 from app.models.algorithm_reset import AlgorithmResetLog, AttentionValueSnapshot, UserAlgorithmPreset, UserAlgorithmState
 from app.models.app_setting import AppSetting
+from app.models.invite_code import InviteCode
 from app.models.enums import AiJobStatus, AiJobType, UserRole, VideoStatus
 from app.models.learning_path import LearningPath, LearningPathItem
 from app.models.tag import Tag
 from app.models.upload_intent import UploadIntent
+from app.models.registration_attempt import RegistrationAttempt
 from app.models.user import User
 from app.models.user_block import UserBlock
 from app.models.user_follow import UserFollow
@@ -38,9 +40,11 @@ __all__ = [
     "DirectConversation",
     "DirectMessage",
     "DirectMessageAttachment",
+    "InviteCode",
     "LearningPath",
     "LearningPathItem",
     "Tag",
+    "RegistrationAttempt",
     "UploadIntent",
     "User",
     "UserAlgorithmState",

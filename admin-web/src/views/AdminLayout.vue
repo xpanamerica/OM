@@ -41,6 +41,7 @@ async function logout() {
         <el-menu-item index="/users">用户</el-menu-item>
         <el-menu-item index="/stats">平台统计</el-menu-item>
         <el-menu-item index="/settings">平台设置</el-menu-item>
+        <el-menu-item index="/invite-codes">内测邀请码</el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>

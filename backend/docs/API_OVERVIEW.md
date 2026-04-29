@@ -12,7 +12,8 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `P/auth/register` | JSON：`email`、`username`、`password`（≥8 字符）；201 返回用户公开信息 |
+| GET | `P/auth/registration-options` | **可匿名**；JSON：`invite_code_required`（平台是否强制邀请码注册） |
+| POST | `P/auth/register` | JSON：`email`、`username`、`password`（≥8 字符）；可选 `invite_code`。当后台开启内测邀请码时，未填或无效码返回 400 及对应文案；201 返回用户公开信息 |
 | POST | `P/auth/login` | `application/x-www-form-urlencoded`：`username`（可填用户名或邮箱）、`password`；200 返回 `access_token`、`token_type` |
 
 ---
@@ -121,6 +122,11 @@
 | GET | `P/admin/users` | 用户列表；`keyword`、`role`、`is_active` 等 |
 | PATCH | `P/admin/users/{user_id}/active` | JSON：`is_active`；禁用后 **再登录** 为 401（与错密同文案）；已签发令牌在受保护接口上仍会 403 |
 | GET | `P/admin/statistics/platform` | 平台汇总：用户数、视频数、按状态计数、播放量/点赞/收藏总和 |
+| GET | `P/admin/settings` | 平台开关；含 `video_publish_without_review_enabled`、`registration_invite_code_required`（内测须邀请码注册）等 |
+| PATCH | `P/admin/settings` | JSON 部分字段更新；同上 |
+| GET | `P/admin/invite-codes` | 邀请码分页列表；`offset`/`limit`；JSON：`items`、`total` |
+| POST | `P/admin/invite-codes` | 创建；JSON：`max_uses`、可选 `expires_at`；响应含新建 `invite`（含明文 `code`） |
+| POST | `P/admin/invite-codes/{invite_id}/revoke` | 作废仍为 `active` 的邀请码 |
 
 ---
 

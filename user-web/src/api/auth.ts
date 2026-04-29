@@ -19,7 +19,17 @@ export type RegisterBody = {
   email: string;
   username: string;
   password: string;
+  invite_code?: string | null;
 };
+
+export type RegistrationOptions = {
+  invite_code_required: boolean;
+};
+
+export async function fetchRegistrationOptions(): Promise<RegistrationOptions> {
+  const { data } = await http.get<RegistrationOptions>("/auth/registration-options");
+  return data;
+}
 
 export async function register(body: RegisterBody): Promise<UserPublic> {
   const { data } = await http.post<UserPublic>("/auth/register", body);

@@ -18,9 +18,10 @@ from app.schemas.admin_management import (
     AdminPlatformStatsOut,
     AdminUserActiveBody,
 )
+from app.schemas.invite_codes import AdminInviteCodeCreate, AdminInviteCodeCreated, AdminInviteCodeItem, AdminInviteCodeListOut
 from app.schemas.user import UserPublic
 from app.schemas.video import VideoListItem
-from app.services import admin_management_service, app_settings_service
+from app.services import admin_management_service, app_settings_service, invite_code_admin_service
 
 router = APIRouter()
 
@@ -50,6 +51,45 @@ def admin_update_platform_settings(
     body: AdminPlatformSettingsUpdate,
 ) -> AdminPlatformSettingsOut:
     return app_settings_service.update_admin_platform_settings(db, body)
+
+
+@router.get(
+    "/invite-codes",
+    response_model=AdminInviteCodeListOut,
+    summary="邀请码列表",
+    description="分页列出内测邀请码及使用状态。",
+)
+def admin_list_invite_codes(
+    db: DbSession,
+    _admin: AdminUser,
+    offset: _AdminListOffset = 0,
+    limit: _AdminListLimit = 50,
+) -> AdminInviteCodeListOut:
+    return invite_code_admin_service.list_invite_codes(db, offset=offset, limit=limit)
+
+
+@router.post(
+    "/invite-codes",
+    response_model=AdminInviteCodeCreated,
+    summary="生成邀请码",
+    dependencies=[Depends(set_mutation_cache_control)],
+)
+def admin_create_invite_code(
+    db: DbSession,
+    admin: AdminUser,
+    body: AdminInviteCodeCreate,
+) -> AdminInviteCodeCreated:
+    return invite_code_admin_service.create_invite_code(db, admin, body)
+
+
+@router.post(
+    "/invite-codes/{invite_id}/revoke",
+    response_model=AdminInviteCodeItem,
+    summary="作废邀请码",
+    dependencies=[Depends(set_mutation_cache_control)],
+)
+def admin_revoke_invite_code(db: DbSession, _admin: AdminUser, invite_id: uuid.UUID) -> AdminInviteCodeItem:
+    return invite_code_admin_service.revoke_invite_code(db, invite_id)
 
 
 @router.get(

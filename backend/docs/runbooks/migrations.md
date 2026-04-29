@@ -3,7 +3,7 @@
 ## 开发环境
 
 ```bash
-docker compose exec api alembic upgrade head
+docker compose exec api python -m alembic -c /app/alembic.ini upgrade head
 ```
 
 ## 生产注意
@@ -16,7 +16,7 @@ docker compose exec api alembic upgrade head
 ## 新增迁移
 
 ```bash
-docker compose exec api alembic revision --autogenerate -m "描述"
+docker compose exec api python -m alembic -c /app/alembic.ini revision --autogenerate -m "描述"
 ```
 
 生成后务必人工检查 `upgrade()`，避免误删列/索引。

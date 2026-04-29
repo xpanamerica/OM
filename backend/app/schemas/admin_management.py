@@ -9,6 +9,9 @@ class AdminPlatformSettingsOut(BaseModel):
     video_publish_without_review_enabled: bool = Field(
         description="开启后，用户提交视频时直接发布，不进入待审核队列。"
     )
+    registration_invite_code_required: bool = Field(
+        description="开启后，公开注册必须提交有效且未过期的邀请码；关闭后适用于正式上线开放注册。"
+    )
 
 
 class AdminPlatformSettingsUpdate(BaseModel):
@@ -17,6 +20,10 @@ class AdminPlatformSettingsUpdate(BaseModel):
     video_publish_without_review_enabled: bool | None = Field(
         default=None,
         description="开启后，用户提交视频时直接发布，不进入待审核队列。",
+    )
+    registration_invite_code_required: bool | None = Field(
+        default=None,
+        description="开启后须凭邀请码注册；关闭后开放注册（邀请码可选且不参与校验）。",
     )
 
 

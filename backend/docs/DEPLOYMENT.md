@@ -43,7 +43,7 @@ make up
 `Dockerfile` 默认入口等价于：
 
 ```bash
-alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m alembic -c /app/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 即：**先执行迁移，再起服务**。首次启动会执行 `init_db`（见 `app/main.py` lifespan + `app/db/init_db.py`），若配置了 `FIRST_SUPERUSER_*` 且库中无同名用户则创建首个管理员。
@@ -67,7 +67,7 @@ make down
 # 仅执行迁移（api 已运行）
 make migrate
 # 等价于
-docker compose exec api alembic upgrade head
+docker compose exec api python -m alembic -c /app/alembic.ini upgrade head
 
 # 容器内跑测试
 docker compose exec api pytest -q

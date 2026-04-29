@@ -6,6 +6,11 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 class UserRegister(BaseModel):
     email: EmailStr
     username: str = Field(min_length=2, max_length=64)
+    invite_code: str | None = Field(
+        default=None,
+        max_length=128,
+        description="内测阶段在平台开启校验时必填；完全开放注册时可省略。",
+    )
     password: str = Field(
         min_length=8,
         max_length=128,
@@ -24,6 +29,16 @@ class UserRegister(BaseModel):
     def strip_username(cls, v: Any) -> Any:
         if isinstance(v, str):
             return v.strip()
+        return v
+
+    @field_validator("invite_code", mode="before")
+    @classmethod
+    def strip_invite_code(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s or None
         return v
 
     @field_validator("password")

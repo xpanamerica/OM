@@ -172,7 +172,13 @@ def test_openapi_contains_auth_and_me_paths_when_exposed(client):
     spec = openapi_skip_unless_exposed(client)
     prefix = settings.API_V1_PREFIX
     paths = spec["paths"]
-    assert_openapi_paths(paths, f"{prefix}/auth/register", f"{prefix}/auth/login", f"{prefix}/users/me")
+    assert_openapi_paths(
+        paths,
+        f"{prefix}/auth/register",
+        f"{prefix}/auth/login",
+        f"{prefix}/auth/registration-options",
+        f"{prefix}/users/me",
+    )
     tags = collect_operation_tags(paths)
     assert "auth" in tags
     assert "users" in tags

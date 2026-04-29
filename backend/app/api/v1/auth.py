@@ -11,10 +11,22 @@ from app.core.exceptions import AppError
 from app.core.login_rate_limit import is_login_allowed
 from app.core.security_audit import log_login_denied, log_login_rate_limited, log_register_conflict
 from app.schemas.auth import Token, UserRegister
+from app.schemas.invite_codes import RegistrationOptionsOut
 from app.schemas.user import UserPublic
-from app.services import auth_service
+from app.services import app_settings_service, auth_service
 
 router = APIRouter()
+
+
+@router.get(
+    "/registration-options",
+    response_model=RegistrationOptionsOut,
+    summary="公开注册策略（是否强制邀请码）",
+)
+def registration_options(db: DbSession) -> RegistrationOptionsOut:
+    return RegistrationOptionsOut(
+        invite_code_required=app_settings_service.is_registration_invite_code_required(db)
+    )
 
 
 @router.post(
@@ -24,13 +36,12 @@ router = APIRouter()
     dependencies=[Depends(set_mutation_cache_control)],
 )
 def register(request: Request, db: DbSession, body: UserRegister) -> UserPublic:
+    ip = resolved_client_ip(request, trust_x_forwarded_for=settings.AUTH_TRUST_X_FORWARDED_FOR)
+    ua = request.headers.get("user-agent") or request.headers.get("User-Agent")
     try:
-        user = auth_service.register_user(db, body)
+        user = auth_service.register_user(db, body, client_ip=ip, user_agent=ua)
     except AppError as e:
         if e.status_code == 409:
-            ip = resolved_client_ip(
-                request, trust_x_forwarded_for=settings.AUTH_TRUST_X_FORWARDED_FOR
-            )
             log_register_conflict(ip)
         raise
     return UserPublic.model_validate(user)

@@ -12,6 +12,7 @@ const LearningPathListView = () => import("@/views/LearningPathListView.vue");
 const UserListView = () => import("@/views/UserListView.vue");
 const PlatformStatsView = () => import("@/views/PlatformStatsView.vue");
 const PlatformSettingsView = () => import("@/views/PlatformSettingsView.vue");
+const InviteCodesView = () => import("@/views/InviteCodesView.vue");
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -76,6 +77,12 @@ const router = createRouter({
           name: "settings",
           component: PlatformSettingsView,
           meta: { title: "平台设置" },
+        },
+        {
+          path: "invite-codes",
+          name: "invite-codes",
+          component: InviteCodesView,
+          meta: { title: "内测邀请码" },
         },
         {
           path: ":pathMatch(.*)*",

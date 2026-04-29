@@ -43,6 +43,26 @@ export type AdminPlatformStats = {
 
 export type AdminPlatformSettings = {
   video_publish_without_review_enabled: boolean;
+  registration_invite_code_required: boolean;
+};
+
+export type AdminInviteCodeItem = {
+  id: string;
+  code: string;
+  created_by: string | null;
+  used_by: string | null;
+  used_at: string | null;
+  expires_at: string | null;
+  max_uses: number;
+  used_count: number;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminInviteCodeListOut = {
+  items: AdminInviteCodeItem[];
+  total: number;
 };
 
 export async function adminListVideos(params: {
@@ -96,5 +116,26 @@ export async function adminUpdatePlatformSettings(
   payload: Partial<AdminPlatformSettings>,
 ): Promise<AdminPlatformSettings> {
   const { data } = await http.patch<AdminPlatformSettings>("/admin/settings", payload);
+  return data;
+}
+
+export async function adminListInviteCodes(params: {
+  offset: number;
+  limit: number;
+}): Promise<AdminInviteCodeListOut> {
+  const { data } = await http.get<AdminInviteCodeListOut>("/admin/invite-codes", { params });
+  return data;
+}
+
+export async function adminCreateInviteCode(body: {
+  max_uses?: number;
+  expires_at?: string | null;
+}): Promise<{ invite: AdminInviteCodeItem }> {
+  const { data } = await http.post<{ invite: AdminInviteCodeItem }>("/admin/invite-codes", body);
+  return data;
+}
+
+export async function adminRevokeInviteCode(inviteId: string): Promise<AdminInviteCodeItem> {
+  const { data } = await http.post<AdminInviteCodeItem>(`/admin/invite-codes/${inviteId}/revoke`);
   return data;
 }

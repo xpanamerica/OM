@@ -26,10 +26,10 @@ logs:
 	docker compose logs -f api
 
 migrate:
-	docker compose exec api alembic upgrade head
+	docker compose exec api python -m alembic -c /app/alembic.ini upgrade head
 
 revision:
-	docker compose exec api alembic revision --autogenerate -m "$(m)"
+	docker compose exec api python -m alembic -c /app/alembic.ini revision --autogenerate -m "$(m)"
 
 test:
 	docker compose exec api pytest -q

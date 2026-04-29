@@ -119,7 +119,7 @@ COMPOSE_HTTP_TIMEOUT=300 docker compose up --build
 
 默认 **`http://localhost:8000/docs`**（开发态）、**`http://localhost:8000/health`**。默认 compose 中 **Postgres / Redis 仅映射到宿主机 `127.0.0.1`**，`api` 仍为 **`0.0.0.0:8000`**（便于同网段设备调试）；若希望 API 也仅本机访问，可叠加 **`docker-compose.api-loopback.yml`**（见同目录文件头注释）。所有服务带 **`restart: unless-stopped`**。
 
-容器内启动命令等价：`alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000`（见 `Dockerfile`）。
+容器内启动命令等价：`python -m alembic -c /app/alembic.ini upgrade head && uvicorn …`（见 `Dockerfile`，显式 `-c` 避免挂载/工作目录异常时找不到配置）。
 
 更多：`make up`、`make logs`、`make migrate`；镜像代理、备份、生产变量等见 **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**（可独立阅读，无需对照口头说明）。
 
@@ -148,7 +148,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | 场景 | 命令 |
 |------|------|
 | 本机已 export `DATABASE_URL`（指向可达 Postgres） | `alembic upgrade head` |
-| Compose 已启动、`api` 容器在运行 | `docker compose exec api alembic upgrade head` |
+| Compose 已启动、`api` 容器在运行 | `docker compose exec api python -m alembic -c /app/alembic.ini upgrade head` |
 | 与 Makefile 等价 | `make migrate` |
 
 **在开发机（已配置 DATABASE_URL）**：
@@ -162,7 +162,7 @@ alembic upgrade head
 
 ```bash
 cd /home/xixiang2025/OM/backend
-docker compose exec api alembic upgrade head
+docker compose exec api python -m alembic -c /app/alembic.ini upgrade head
 # 或
 make migrate
 ```
@@ -171,7 +171,7 @@ make migrate
 
 ```bash
 cd /home/xixiang2025/OM/backend
-docker compose exec api alembic revision --autogenerate -m "describe_change"
+docker compose exec api python -m alembic -c /app/alembic.ini revision --autogenerate -m "describe_change"
 ```
 
 **回归**：`pytest tests/test_alembic_sqlite.py -q`（在临时 SQLite 文件上 `upgrade head` / 一步 `downgrade`）。
@@ -281,7 +281,7 @@ python3 -c "from urllib.parse import quote; u=quote('postgres', safe=''); p=quot
 | `make up` | `docker compose up --build`（带较长 `COMPOSE_HTTP_TIMEOUT`） |
 | `make down` | `docker compose down -v` |
 | `make logs` | `docker compose logs -f api` |
-| `make migrate` | 容器内 `alembic upgrade head` |
+| `make migrate` | 容器内 `python -m alembic -c /app/alembic.ini upgrade head` |
 | `make test-conda` | 用 `media_app` 跑 `pytest` |
 | `make verify-docker` | `bash scripts/verify_docker_endpoints.sh` |
 | `make verify-docker-auth` | 同上 + 默认管理员 OAuth 烟测 |

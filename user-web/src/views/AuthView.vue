@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "@/util/elementPlusMessage";
 import { useAuthStore } from "@/stores/auth";
+import * as authApi from "@/api/auth";
 import { formatApiError } from "@/util/errors";
 import { useIsMobile } from "@/composables/useIsMobile";
 import MobileTabBar from "@/components/MobileTabBar.vue";
@@ -16,7 +17,17 @@ const tab = ref<"login" | "register">("login");
 const loading = ref(false);
 
 const loginForm = reactive({ username: "", password: "" });
-const regForm = reactive({ email: "", username: "", password: "" });
+const regForm = reactive({ email: "", username: "", password: "", invite_code: "" });
+const inviteRequired = ref(false);
+
+async function loadRegistrationOptions() {
+  try {
+    const o = await authApi.fetchRegistrationOptions();
+    inviteRequired.value = o.invite_code_required;
+  } catch {
+    inviteRequired.value = false;
+  }
+}
 
 async function onLogin() {
   loading.value = true;
@@ -35,11 +46,16 @@ async function onLogin() {
 async function onRegister() {
   loading.value = true;
   try {
-    await auth.registerAndHintLogin({
+    const body: authApi.RegisterBody = {
       email: regForm.email,
       username: regForm.username,
       password: regForm.password,
-    });
+    };
+    const ic = regForm.invite_code.trim();
+    if (ic) {
+      body.invite_code = ic;
+    }
+    await auth.registerAndHintLogin(body);
     ElMessage.success("注册已提交，请等待后台验证通过后再登录");
     tab.value = "login";
     loginForm.username = regForm.username;
@@ -49,13 +65,17 @@ async function onRegister() {
     loading.value = false;
   }
 }
+
+onMounted(() => {
+  void loadRegistrationOptions();
+});
 </script>
 
 <template>
   <div class="auth-shell">
     <div class="wrap auth-page">
       <el-card class="card auth-card">
-        <el-tabs v-model="tab">
+        <el-tabs v-model="tab" @tab-change="(name: string | number) => name === 'register' && void loadRegistrationOptions()">
           <el-tab-pane label="登录" name="login">
             <el-form
               :label-position="isMobile ? 'top' : 'right'"
@@ -89,6 +109,14 @@ async function onRegister() {
               <el-form-item label="密码">
                 <el-input v-model="regForm.password" type="password" show-password autocomplete="new-password" />
               </el-form-item>
+              <el-form-item label="邀请码">
+                <el-input
+                  v-model="regForm.invite_code"
+                  autocomplete="off"
+                  :placeholder="inviteRequired ? '内测必填' : '内测选填（平台开启校验时必填）'"
+                />
+                <p v-if="inviteRequired" class="reg-hint">当前为内测阶段，注册需要有效邀请码。</p>
+              </el-form-item>
               <el-form-item>
                 <el-button type="primary" native-type="submit" :loading="loading">注册</el-button>
               </el-form-item>
@@ -113,6 +141,12 @@ async function onRegister() {
 .card {
   width: 420px;
   max-width: 100%;
+}
+.reg-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
 }
 @media (max-width: 767px) {
   .auth-shell {

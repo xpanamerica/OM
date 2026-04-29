@@ -23,4 +23,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=6s --start-period=120s --retries=5 \
   CMD python3 -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4); c=getattr(r,'status',r.getcode()); r.close(); raise SystemExit(0 if c==200 else 1)"
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# 显式 -c，避免工作目录/挂载异常时找不到 alembic.ini（与 python -m 一致，不依赖 PATH 上的 alembic 脚本）
+CMD ["sh", "-c", "python -m alembic -c /app/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

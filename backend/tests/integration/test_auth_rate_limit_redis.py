@@ -67,3 +67,17 @@ def test_login_ip_limit_via_redis_lua_sha(monkeypatch):
     assert arl.try_consume_login_ip(ip)[0] is True
     ok, _ = arl.try_consume_login_ip(ip)
     assert ok is False
+
+
+def test_login_fail_redis_key_includes_window(monkeypatch):
+    from app.infrastructure.redis import get_redis
+
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_LOGIN_FAIL_WINDOW_SECONDS", 888)
+    ident = "login_fail_window_rl@example.com"
+    sub = arl._login_account_key(ident)
+    expected = f"{arl.RL_PREFIX}:login:fail:w888:{sub}"
+    arl.record_login_failure(ident)
+    assert get_redis().exists(expected) == 1
+    assert arl.login_account_failure_count(ident) == 1
+    arl.clear_login_failures(ident)
+    assert get_redis().exists(expected) == 0

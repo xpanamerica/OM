@@ -82,6 +82,7 @@ def login(
         raise AuthRateLimitExceeded(retry_after=retry_after)
 
     if auth_rate_limit.is_login_account_blocked(form_data.username):
+        auth_rate_limit.notify_login_fail_account_rate_limited()
         security_event_repository.insert_event_sync(
             event_type="rate_limit.auth.login_account",
             ip_address=ip,

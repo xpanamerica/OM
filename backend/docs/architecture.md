@@ -59,11 +59,11 @@ PostgreSQL（权威数据）          Redis（会话外状态：限流、幂等�
 ## 观测
 
 - `app.infrastructure.observability` 下集中初始化 metrics / tracing；避免在业务 service 内散落创建 exporter。
-- **Prometheus 兼容**：`EXPOSE_PROMETHEUS_METRICS=true` 时挂载 `GET /metrics`（text/plain OpenMetrics 风格）；评论计数器带 **`worker` 标签**（默认 `pid_<进程号>`，可通过 `METRICS_INSTANCE_ID` 设为 Pod 名等，便于 Uvicorn 多 worker / 多副本抓取后区分时间序列）。另含 `app_comments_metrics_exposition_info{schema="v2"}`  gauge。无额外 pip 依赖；若需跨进程原子聚合 histogram，可再接入 `prometheus_client` 的 `PROMETHEUS_MULTIPROC_DIR` 模式。
+- **Prometheus 兼容**：`EXPOSE_PROMETHEUS_METRICS=true` 时挂载 `GET /metrics`（text/plain OpenMetrics 风格）；评论计数器带 **`worker` 标签**（默认 `pid_<进程号>`，可通过 `METRICS_INSTANCE_ID` 设为 Pod 名等，便于 Uvicorn 多 worker / 多副本抓取后区分时间序列）。另含 `app_comments_metrics_exposition_info{schema="v2"}`、`app_auth_rate_limit_metrics_exposition_info{schema="v1"}` 等 gauge。认证限流维度见 `app_auth_rate_limit_exceeded_total{kind=...}`（固定低基数 `kind`）。无额外 pip 依赖；若需跨进程原子聚合 histogram，可再接入 `prometheus_client` 的 `PROMETHEUS_MULTIPROC_DIR` 模式。
 - **请求关联**：`RequestIdMiddleware` 生成或透传 `X-Request-ID`，并写入 `request_id_cv`；`app.comment.audit` 日志含 `request_id` 字段（无则 `-`）。
 
 ## 数据库权威与测试
 
 - **生产与迁移的权威 schema 以 PostgreSQL + Alembic 为准**（含 `0002_schema_improvements` 中的外键、`ON DELETE`、CHECK、补充索引等）。
 - **SQLite / `create_all` 仅用于部分单元或本地快速启动**时，约束与 PG 可能不完全等价；涉及状态与计数、外键级联的用例应在 CI 或集成环境中针对 PG 再跑一遍迁移与关键路径。
-- 默认 **GitHub Actions**（`.github/workflows/backend-ci.yml`）在推送/PR 时跑 `pytest` 与 `compileall`；生产级约束验证建议另加 **PostgreSQL job**（`alembic upgrade head` + 标记为 integration 的用例）。
+- 默认 **GitHub Actions**（`.github/workflows/backend-ci.yml`）在推送/PR 时跑 `pytest` 与 `compileall`，并含 **auth-rate-limit-redis** job（Redis 服务 + `RUN_AUTH_RATE_LIMIT_REDIS`）覆盖认证限流 EVALSHA 路径；生产级约束验证建议另加 **PostgreSQL job**（`alembic upgrade head` + 标记为 integration 的用例）。

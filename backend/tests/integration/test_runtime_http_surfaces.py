@@ -53,6 +53,7 @@ def test_metrics_exposed_when_setting_enabled(client, monkeypatch):
     assert b"app_upload_flow_metrics_exposition_info" in r.content
     assert b"worker=" in r.content
     assert b"app_comments_metrics_exposition_info" in r.content
+    assert b"app_auth_rate_limit_metrics_exposition_info" in r.content
 
 
 def test_docs_returns_200(client):

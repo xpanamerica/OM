@@ -69,6 +69,7 @@ def prometheus_metrics():
     """Prometheus textformat（评论 + 播放记录 + 上传链路等进程内计数器）；默认关闭，见 ``EXPOSE_PROMETHEUS_METRICS``。"""
     if not settings.EXPOSE_PROMETHEUS_METRICS:
         return Response(status_code=404)
+    from app.infrastructure.observability.auth_rate_limit_metrics import render_auth_rate_limit_metrics_prometheus_text
     from app.infrastructure.observability.comment_metrics import render_comment_metrics_prometheus_text
     from app.infrastructure.observability.upload_flow_metrics import render_upload_flow_metrics_prometheus_text
     from app.infrastructure.observability.view_record_metrics import render_view_record_metrics_prometheus_text
@@ -77,6 +78,7 @@ def prometheus_metrics():
         render_comment_metrics_prometheus_text()
         + render_view_record_metrics_prometheus_text()
         + render_upload_flow_metrics_prometheus_text()
+        + render_auth_rate_limit_metrics_prometheus_text()
     )
     return Response(
         content=body,

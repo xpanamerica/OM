@@ -83,6 +83,7 @@ import app.models  # noqa: F401 — 确保 User 等表注册到 metadata
 from app.db.base import Base
 from app.db.session import get_db
 from app.infrastructure.idempotency_store import clear_idempotency_memory_for_tests
+from app.infrastructure.observability.auth_rate_limit_metrics import reset_auth_rate_limit_metrics_for_tests
 from app.infrastructure.observability.comment_metrics import reset_comment_metrics_for_tests
 from app.infrastructure.observability.upload_flow_metrics import reset_upload_flow_metrics_for_tests
 from app.infrastructure.observability.view_record_metrics import reset_view_record_metrics_for_tests
@@ -107,6 +108,7 @@ def _reset_auth_rate_limit_between_tests():
     reset_comment_metrics_for_tests()
     reset_view_record_metrics_for_tests()
     reset_upload_flow_metrics_for_tests()
+    reset_auth_rate_limit_metrics_for_tests()
     clear_idempotency_memory_for_tests()
     yield
     reset_attachment_upload_rate_limit_for_tests()
@@ -125,6 +127,7 @@ def _reset_auth_rate_limit_between_tests():
     reset_comment_metrics_for_tests()
     reset_view_record_metrics_for_tests()
     reset_upload_flow_metrics_for_tests()
+    reset_auth_rate_limit_metrics_for_tests()
     clear_idempotency_memory_for_tests()
 
 

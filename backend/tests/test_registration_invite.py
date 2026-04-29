@@ -169,6 +169,34 @@ def test_register_rejects_expired_invite(client, db_session):
     assert r.json()["detail"] == "邀请码已过期"
 
 
+def test_register_respects_auth_register_max_attempts_per_minute(monkeypatch, client, db_session):
+    """生产向：AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE>0 时覆盖「每分钟」注册上限（默认 0 不改变既有单测口径）。"""
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE", 2)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR", 100)
+    monkeypatch.setattr(config_module.settings, "AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE", 3)
+    from app.core.auth_rate_limit import reset_auth_rate_limit_memory_for_tests
+
+    reset_auth_rate_limit_memory_for_tests()
+    prefix = settings.API_V1_PREFIX
+    for i in range(3):
+        r = client.post(
+            f"{prefix}/auth/register",
+            json={
+                "email": f"cap{i}@example.com",
+                "username": f"capuser{i}",
+                "password": "secret1234",
+            },
+        )
+        assert r.status_code == 201, r.text
+    r4 = client.post(
+        f"{prefix}/auth/register",
+        json={"email": "cap4@example.com", "username": "capuser4", "password": "secret1234"},
+    )
+    assert r4.status_code == 429
+
+
 def test_register_rate_limited_after_max_attempts(monkeypatch, client, db_session):
     monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
     monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)

@@ -271,8 +271,15 @@ def _redis_login_fail_key_legacy(sub: str) -> str:
     return f"{RL_PREFIX}:login:fail:{sub}"
 
 
+def _register_per_minute_effective_limit() -> int:
+    cap = int(settings.AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE or 0)
+    if cap > 0:
+        return cap
+    return int(settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE)
+
+
 def _mem_try_dual_register(ip_tok: str) -> tuple[bool, int, str | None]:
-    lim_m = settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE
+    lim_m = _register_per_minute_effective_limit()
     lim_h = settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR
     w1 = float(settings.AUTH_RATE_LIMIT_REGISTER_MINUTE_WINDOW_SECONDS)
     w2 = float(settings.AUTH_RATE_LIMIT_REGISTER_HOUR_WINDOW_SECONDS)
@@ -321,7 +328,7 @@ def try_consume_register(client_ip: str) -> tuple[bool, int | None, str | None]:
                     k2,
                     now,
                     mw,
-                    settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE,
+                    _register_per_minute_effective_limit(),
                     hw,
                     settings.AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR,
                     member,

@@ -179,6 +179,17 @@ class Settings(BaseSettings):
         le=604_800,
         description="忘记密码：每 IP / 每邮箱共用的时间窗口长度（秒）。",
     )
+    AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE: int = Field(
+        default=0,
+        ge=0,
+        le=10_000,
+        description=(
+            "注册：每 IP 在「每分钟」滑动窗口内的**有效上限**；**0** 表示不启用本项，"
+            "沿用 ``AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE``。"
+            "设为正值时**覆盖**该分钟维度配额（小时维度仍用 ``AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR``），"
+            "便于生产单独设为 20–60 等运营值而不改通用限流默认值。"
+        ),
+    )
     AUTH_TRUST_X_FORWARDED_FOR: bool = Field(
         default=False,
         description="为 True 时用 X-Forwarded-For 最左侧作为客户端 IP（仅置于受信反代之后开启）",

@@ -176,6 +176,7 @@ services:
 | `AUTH_RATE_LIMIT_REDIS_STALE_REPROBE_SECONDS` | 进程内曾判定 Redis 不可达时，认证限流侧每隔若干秒再探测（默认 30；`0` 不重探测） |
 | `AUTH_RATE_LIMIT_REGISTER_*` / `LOGIN_*` / `FORGOT_*` | 各维度配额（整数），默认与产品规格一致，可按环境调优 |
 | `AUTH_RATE_LIMIT_*_WINDOW_SECONDS` | 各滑动窗口长度（秒）；须满足「注册小时窗 ≥ 分钟窗」 |
+| `AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE` | **0**（默认）沿用每分钟注册配额；**>0** 时覆盖该分钟维度（小时仍用 `AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR`）；生产可设 **20–60** |
 | `EXPOSE_PROMETHEUS_METRICS` | 为 true 时 ``GET /metrics`` 导出进程内 Prometheus 文本（含评论/播放/上传链路与 **`app_auth_rate_limit_*`** 等）；勿对公网暴露 |
 | `LOG_LEVEL` | `INFO` 或 `WARNING` |
 

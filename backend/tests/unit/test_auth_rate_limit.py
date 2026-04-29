@@ -6,6 +6,22 @@ from app.core import auth_rate_limit as arl
 from app.core.config import settings
 
 
+def test_register_max_attempts_per_minute_overrides_minute_cap(monkeypatch):
+    monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
+    monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE", 2)
+    monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_REGISTER_PER_IP_PER_HOUR", 100)
+    monkeypatch.setattr(settings, "AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE", 5)
+    arl.reset_auth_rate_limit_memory_for_tests()
+    ip = "203.0.113.88"
+    for _ in range(5):
+        ok, _, _ = arl.try_consume_register(ip)
+        assert ok is True
+    ok, _, which = arl.try_consume_register(ip)
+    assert ok is False
+    assert which == "register_per_minute"
+
+
 def test_memory_register_dual_window(monkeypatch):
     monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_ENABLED", True)
     monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_USE_REDIS", False)

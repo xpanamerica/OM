@@ -15,7 +15,8 @@
 | GET | `P/auth/registration-options` | **可匿名**；JSON：`invite_code_required`（平台是否强制邀请码注册） |
 | POST | `P/auth/register` | JSON：`email`、`username`、`password`（≥8 字符）；可选 `invite_code`。当后台开启内测邀请码时，未填或无效码返回 400 及对应文案；201 返回用户公开信息 |
 | POST | `P/auth/login` | `application/x-www-form-urlencoded`：`username`（可填用户名或邮箱）、`password`；200 返回 `access_token`、`token_type` |
-| POST | `P/auth/forgot-password` | **可匿名**；JSON：`email`；防枚举固定 200 文案；启用限流且超配额时 **429**，体为 `{"success":false,"message":"请求过于频繁，请稍后再试。"}` |
+| POST | `P/auth/forgot-password` | **可匿名**；JSON：`email`；防枚举固定 200 文案；对已注册且启用用户签发一次性重置令牌（见环境变量 `AUTH_PASSWORD_RESET_*` / `SMTP_*`）；启用限流且超配额时 **429** |
+| POST | `P/auth/reset-password` | **可匿名**；JSON：`token`（邮件/日志中的明文令牌）、`password`（新口令，规则同注册）；200 成功；令牌无效或过期 **400**，`code`=`PASSWORD_RESET_INVALID` |
 
 认证限流（`AUTH_RATE_LIMIT_ENABLED=true` 且 Redis 可用时多实例一致）：默认配额为注册每 IP 每分钟 3 / 每小时 10；登录每 IP 每分钟 5；同一登录标识 15 分钟内失败 5 次后拒绝；忘记密码每 IP 每小时 3、每邮箱每小时 2。各维度滑动窗口秒数（如 `AUTH_RATE_LIMIT_REGISTER_MINUTE_WINDOW_SECONDS`）与配额均可经环境变量覆盖（见 `app/core/config.py`）。Redis 路径使用 ``SCRIPT LOAD`` + ``EVALSHA``（键前缀 ``rl:auth:v2:``，含窗口的维度如 ``login:fail:w{秒}:``）；进程内曾判定 Redis 不可达时，可按 `AUTH_RATE_LIMIT_REDIS_STALE_REPROBE_SECONDS` 周期性重探测。`EXPOSE_PROMETHEUS_METRICS=true` 时 ``GET /metrics`` 含 ``app_auth_rate_limit_exceeded_total{kind=...}``、``app_auth_rate_limit_redis_errors_total``、``app_auth_rate_limit_memory_fallback_total``。可选真 Redis 集成测试：`RUN_AUTH_RATE_LIMIT_REDIS=1 pytest tests/integration/test_auth_rate_limit_redis.py`；CI 中由 workflow job **auth-rate-limit-redis** 固定执行。超限事件写入 `security_events` 表。
 

@@ -16,6 +16,7 @@
 - [ ] **`EXPOSE_PROMETHEUS_METRICS`**：未对公网暴露 `/metrics`，或已加网络 ACL。
 - [ ] **`AUTH_TRUST_X_FORWARDED_FOR`**：仅在受信反代后开启；否则保持 `false`。
 - [ ] **`AUTH_RATE_LIMIT_ENABLED`**：生产为 `true`，且 **`REDIS_URL`** 可用；`AUTH_RATE_LIMIT_USE_REDIS=true`。
+- [ ] **忘记密码**：若面向用户提供自助重置，已配置 **`AUTH_PASSWORD_RESET_EMAIL_BACKEND=smtp`**（或经队列的等价投递）、**`AUTH_PASSWORD_RESET_PUBLIC_LINK_TEMPLATE`**（含 `{token}`）、**`SMTP_*` / `AUTH_PASSWORD_RESET_EMAIL_FROM`**；迁移含 **`password_reset_tokens`** 表。
 
 ---
 

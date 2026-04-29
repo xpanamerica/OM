@@ -138,6 +138,16 @@ def count_active_admins_excluding(db: Session, *, exclude_user_id: uuid.UUID) ->
     return int(db.scalar(stmt) or 0)
 
 
+def update_user_hashed_password(db: Session, *, user_id: uuid.UUID, hashed_password: str) -> User | None:
+    u = get_by_id(db, user_id)
+    if u is None:
+        return None
+    u.hashed_password = hashed_password
+    db.add(u)
+    db.flush()
+    return u
+
+
 def set_user_is_active(db: Session, *, user_id: uuid.UUID, is_active: bool) -> User | None:
     u = get_by_id(db, user_id)
     if u is None:

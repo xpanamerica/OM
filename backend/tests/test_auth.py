@@ -281,12 +281,71 @@ def test_openapi_contains_auth_and_me_paths_when_exposed(client):
         f"{prefix}/auth/register",
         f"{prefix}/auth/login",
         f"{prefix}/auth/forgot-password",
+        f"{prefix}/auth/reset-password",
         f"{prefix}/auth/registration-options",
         f"{prefix}/users/me",
     )
     tags = collect_operation_tags(paths)
     assert "auth" in tags
     assert "users" in tags
+
+
+def test_forgot_password_creates_token_and_reset_password_roundtrip(client, db_session, monkeypatch, caplog):
+    import logging
+    from urllib.parse import parse_qs, urlparse
+
+    monkeypatch.setattr(config_module.settings, "AUTH_PASSWORD_RESET_EMAIL_BACKEND", "log")
+    monkeypatch.setattr(
+        config_module.settings,
+        "AUTH_PASSWORD_RESET_PUBLIC_LINK_TEMPLATE",
+        "https://app.test/reset?token={token}",
+    )
+    prefix = settings.API_V1_PREFIX
+    email = "roundtrip_fp@example.com"
+    assert (
+        client.post(
+            f"{prefix}/auth/register",
+            json={"email": email, "username": "roundtrip_fp", "password": "oldSecret12"},
+        ).status_code
+        == 201
+    )
+    with caplog.at_level(logging.INFO):
+        r = client.post(f"{prefix}/auth/forgot-password", json={"email": email})
+    assert r.status_code == 200
+    raw_token = None
+    for rec in caplog.records:
+        msg = rec.getMessage()
+        if "https://app.test/reset?token=" not in msg:
+            continue
+        i = msg.index("https://app.test")
+        url = msg[i:].split()[0]
+        raw_token = parse_qs(urlparse(url).query)["token"][0]
+        break
+    assert raw_token and len(raw_token) >= 16, caplog.text
+    new_pw = "newSecret345"
+    rr = client.post(
+        f"{prefix}/auth/reset-password",
+        json={"token": raw_token, "password": new_pw},
+    )
+    assert rr.status_code == 200, rr.text
+    assert client.post(
+        f"{prefix}/auth/login",
+        data={"username": email, "password": new_pw},
+    ).status_code == 200
+    assert client.post(
+        f"{prefix}/auth/login",
+        data={"username": email, "password": "oldSecret12"},
+    ).status_code == 401
+
+
+def test_reset_password_rejects_invalid_token(client):
+    prefix = settings.API_V1_PREFIX
+    r = client.post(
+        f"{prefix}/auth/reset-password",
+        json={"token": "not-a-valid-token-at-all-xx", "password": "newSecret12"},
+    )
+    assert r.status_code == 400
+    assert r.json().get("code") == "PASSWORD_RESET_INVALID"
 
 
 def test_login_with_email(client):

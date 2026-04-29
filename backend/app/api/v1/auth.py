@@ -16,10 +16,17 @@ from app.core.security_audit import (
     log_register_rate_limited,
 )
 from app.repositories import security_event_repository
-from app.schemas.auth import ForgotPasswordIn, ForgotPasswordOut, Token, UserRegister
+from app.schemas.auth import (
+    ForgotPasswordIn,
+    ForgotPasswordOut,
+    ResetPasswordIn,
+    ResetPasswordOut,
+    Token,
+    UserRegister,
+)
 from app.schemas.invite_codes import RegistrationOptionsOut
 from app.schemas.user import UserPublic
-from app.services import app_settings_service, auth_service
+from app.services import app_settings_service, auth_service, password_reset_service
 
 router = APIRouter()
 
@@ -109,11 +116,16 @@ def login(
     "/forgot-password",
     response_model=ForgotPasswordOut,
     status_code=status.HTTP_200_OK,
-    summary="忘记密码（占位）",
-    description="防邮箱枚举：始终返回成功文案；实际发信逻辑可后续接入。启用限流时写 Redis。",
+    summary="忘记密码",
+    description=(
+        "防邮箱枚举：无论邮箱是否存在，HTTP 200 与相同 JSON 文案。"
+        "对已注册且启用的用户：签发一次性令牌（``password_reset_tokens``），并按 "
+        "``AUTH_PASSWORD_RESET_EMAIL_BACKEND``（noop/log/smtp）投递。"
+        "启用限流时写 Redis。"
+    ),
     dependencies=[Depends(set_mutation_cache_control)],
 )
-def forgot_password(request: Request, body: ForgotPasswordIn) -> ForgotPasswordOut:
+def forgot_password(request: Request, db: DbSession, body: ForgotPasswordIn) -> ForgotPasswordOut:
     ip = resolved_client_ip(request, trust_x_forwarded_for=settings.AUTH_TRUST_X_FORWARDED_FOR)
     email_norm = str(body.email).strip().lower()
     ok, retry_after, which = auth_rate_limit.try_consume_forgot_password(ip, email_norm)
@@ -125,4 +137,24 @@ def forgot_password(request: Request, body: ForgotPasswordIn) -> ForgotPasswordO
             detail=which,
         )
         raise AuthRateLimitExceeded(retry_after=retry_after)
+    password_reset_service.request_password_reset(db, email_normalized=email_norm, client_ip=ip)
     return ForgotPasswordOut()
+
+
+@router.post(
+    "/reset-password",
+    response_model=ResetPasswordOut,
+    status_code=status.HTTP_200_OK,
+    summary="使用邮件令牌重置密码",
+    description="消费 ``forgot-password`` 签发的明文令牌，设置新密码；成功后可立即用新口令登录。",
+    dependencies=[Depends(set_mutation_cache_control)],
+)
+def reset_password(request: Request, db: DbSession, body: ResetPasswordIn) -> ResetPasswordOut:
+    ip = resolved_client_ip(request, trust_x_forwarded_for=settings.AUTH_TRUST_X_FORWARDED_FOR)
+    password_reset_service.complete_password_reset(
+        db,
+        raw_token=body.token,
+        new_password=body.password,
+        client_ip=ip,
+    )
+    return ResetPasswordOut()

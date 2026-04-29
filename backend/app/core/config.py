@@ -187,6 +187,30 @@ class Settings(BaseSettings):
         default=True,
         description="为 True 时，公开注册用户默认未启用，需后台管理员审核启用后才能登录。",
     )
+    AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS: int = Field(
+        default=3600,
+        ge=300,
+        le=604_800,
+        description="忘记密码邮件中重置令牌有效时长（秒），默认 1 小时。",
+    )
+    AUTH_PASSWORD_RESET_EMAIL_BACKEND: str = Field(
+        default="noop",
+        description="noop=仅落库不发信；log=INFO 记录含链接（仅开发/排障）；smtp=经 SMTP 发信（须同时配置 SMTP_* 与模板）。",
+    )
+    AUTH_PASSWORD_RESET_EMAIL_FROM: str | None = Field(
+        default=None,
+        description="SMTP 发信时的 From 地址；``AUTH_PASSWORD_RESET_EMAIL_BACKEND=smtp`` 时必填。",
+    )
+    AUTH_PASSWORD_RESET_PUBLIC_LINK_TEMPLATE: str = Field(
+        default="",
+        max_length=512,
+        description="邮件正文中的重置链接模板，**必须**包含字面量 ``{token}``（例如前端页 `https://app.example/reset?token={token}`）。",
+    )
+    SMTP_HOST: str | None = Field(default=None, description="SMTP 主机；仅 ``AUTH_PASSWORD_RESET_EMAIL_BACKEND=smtp`` 时使用。")
+    SMTP_PORT: int = Field(default=587, ge=1, le=65535)
+    SMTP_USER: str | None = Field(default=None, description="SMTP 认证用户名；可留空表示无认证。")
+    SMTP_PASSWORD: SecretStr | None = Field(default=None, description="SMTP 认证密码。")
+    SMTP_USE_TLS: bool = Field(default=True, description="SMTP 是否使用 STARTTLS。")
     COMMENT_POST_MAX_PER_VIDEO_PER_MINUTE: int = Field(
         default=12,
         ge=0,
@@ -474,6 +498,45 @@ class Settings(BaseSettings):
                 "AUTH_RATE_LIMIT_REGISTER_HOUR_WINDOW_SECONDS 须大于等于 AUTH_RATE_LIMIT_REGISTER_MINUTE_WINDOW_SECONDS"
             )
         return self
+
+    @model_validator(mode="after")
+    def password_reset_smtp_requires_host_from_and_template(self) -> Self:
+        b = (self.AUTH_PASSWORD_RESET_EMAIL_BACKEND or "noop").strip().lower()
+        if b == "smtp":
+            if not (self.SMTP_HOST or "").strip():
+                raise ValueError("AUTH_PASSWORD_RESET_EMAIL_BACKEND=smtp 时必须配置 SMTP_HOST")
+            if not (self.AUTH_PASSWORD_RESET_EMAIL_FROM or "").strip():
+                raise ValueError("AUTH_PASSWORD_RESET_EMAIL_BACKEND=smtp 时必须配置 AUTH_PASSWORD_RESET_EMAIL_FROM")
+            tpl = (self.AUTH_PASSWORD_RESET_PUBLIC_LINK_TEMPLATE or "").strip()
+            if "{token}" not in tpl:
+                raise ValueError("smtp 发信时 AUTH_PASSWORD_RESET_PUBLIC_LINK_TEMPLATE 必须包含字面量 {token}")
+        return self
+
+    @field_validator("AUTH_PASSWORD_RESET_EMAIL_BACKEND", mode="before")
+    @classmethod
+    def normalize_password_reset_email_backend(cls, v: Any) -> Any:
+        if v is None:
+            return "noop"
+        if isinstance(v, str):
+            s = v.strip().lower()
+            return s or "noop"
+        return v
+
+    @field_validator("AUTH_PASSWORD_RESET_EMAIL_FROM", mode="before")
+    @classmethod
+    def empty_password_reset_from_none(cls, v: Any) -> Any:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return str(v).strip()
+
+    @field_validator("AUTH_PASSWORD_RESET_PUBLIC_LINK_TEMPLATE", mode="before")
+    @classmethod
+    def strip_password_reset_link_template(cls, v: Any) -> Any:
+        if v is None:
+            return ""
+        if isinstance(v, str):
+            return v.strip()
+        return v
 
     @field_validator("ALIYUN_VOD_TEMPLATE_GROUP_ID", "ALIYUN_VOD_WORKFLOW_ID", mode="before")
     @classmethod

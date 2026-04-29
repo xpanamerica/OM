@@ -75,3 +75,35 @@ class ForgotPasswordOut(BaseModel):
         default="若该邮箱已注册，您将收到一封包含说明的邮件。",
         description="防邮箱枚举的固定文案。",
     )
+
+
+class ResetPasswordIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    token: str = Field(min_length=16, max_length=512, description="忘记密码流程返回的明文令牌（邮件/日志中的链接或 token 字段）。")
+    password: str = Field(
+        min_length=8,
+        max_length=128,
+        description="新密码；至少 8 字符；UTF-8 总长度不超过 72 字节（bcrypt 限制）。",
+    )
+
+    @field_validator("token", mode="before")
+    @classmethod
+    def strip_token(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip()
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_within_bcrypt_byte_limit(cls, v: str) -> str:
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("密码过长：UTF-8 编码长度不得超过 72 字节（bcrypt 限制）")
+        return v
+
+
+class ResetPasswordOut(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    success: bool = True
+    message: str = Field(default="密码已重置，请使用新密码登录。")

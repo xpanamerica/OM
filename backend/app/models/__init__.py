@@ -13,6 +13,7 @@ from app.models.learning_path import LearningPath, LearningPathItem
 from app.models.tag import Tag
 from app.models.upload_intent import UploadIntent
 from app.models.registration_attempt import RegistrationAttempt
+from app.models.password_reset_token import PasswordResetToken
 from app.models.security_event import SecurityEvent
 from app.models.user import User
 from app.models.user_block import UserBlock
@@ -42,6 +43,7 @@ __all__ = [
     "DirectMessage",
     "DirectMessageAttachment",
     "InviteCode",
+    "PasswordResetToken",
     "LearningPath",
     "LearningPathItem",
     "Tag",

@@ -1,5 +1,6 @@
 {
   "files.autoSave": "onFocusChange",
+  "explorer.excludeGitIgnore": true,
   "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
   "python.condaPath": "${env:HOME}/software/anaconda3/bin/conda",
   "python.terminal.activateEnvironment": true,

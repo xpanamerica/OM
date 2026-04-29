@@ -17,3 +17,7 @@ def log_login_denied(client_ip: str) -> None:
 
 def log_register_conflict(client_ip: str) -> None:
     logger.info("event=register_conflict client_ip=%s", client_ip)
+
+
+def log_register_rate_limited(client_ip: str) -> None:
+    logger.warning("event=register_rate_limited client_ip=%s", client_ip)

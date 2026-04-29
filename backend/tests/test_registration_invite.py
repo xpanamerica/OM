@@ -166,3 +166,64 @@ def test_register_rejects_expired_invite(client, db_session):
     )
     assert r.status_code == 400
     assert r.json()["detail"] == "邀请码已过期"
+
+
+def test_register_rate_limited_after_max_attempts(monkeypatch, client, db_session):
+    monkeypatch.setattr(settings, "AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE", 2)
+
+    for i in range(2):
+        r = client.post(
+            f"{settings.API_V1_PREFIX}/auth/register",
+            json={
+                "email": f"rl{i}@example.com",
+                "username": f"rluser{i}",
+                "password": "secret1234",
+            },
+        )
+        assert r.status_code == 201, r.text
+
+    r3 = client.post(
+        f"{settings.API_V1_PREFIX}/auth/register",
+        json={"email": "rl3@example.com", "username": "rluser3", "password": "secret1234"},
+    )
+    assert r3.status_code == 429
+    assert r3.json()["detail"] == "注册请求过于频繁，请稍后再试"
+    assert r3.headers.get("Retry-After") == "60"
+
+
+def test_admin_list_registration_attempts_after_failed_register(client, db_session):
+    app_setting_repository.set_value(db_session, key="registration_invite_code_required", value="true")
+    db_session.commit()
+    assert app_settings_service.is_registration_invite_code_required(db_session) is True
+    ro = client.get(f"{settings.API_V1_PREFIX}/auth/registration-options")
+    assert ro.status_code == 200 and ro.json()["invite_code_required"] is True
+    hdr = _admin(client, db_session)
+
+    assert (
+        client.post(
+            f"{settings.API_V1_PREFIX}/auth/register",
+            json={"email": "aud@example.com", "username": "auduser", "password": "secret1234"},
+        ).status_code
+        == 400
+    )
+
+    r = client.get(f"{settings.API_V1_PREFIX}/admin/registration-attempts", headers=hdr, params={"limit": 20})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] >= 1
+    assert any(row.get("email") == "aud@example.com" and row.get("success") is False for row in body["items"])
+
+
+def test_admin_generated_invite_code_has_sufficient_length(client, db_session):
+    app_setting_repository.set_value(db_session, key="registration_invite_code_required", value="true")
+    db_session.commit()
+    hdr = _admin(client, db_session)
+    gen = client.post(
+        f"{settings.API_V1_PREFIX}/admin/invite-codes",
+        headers=hdr,
+        json={"max_uses": 1},
+    )
+    assert gen.status_code == 200, gen.text
+    code = gen.json()["invite"]["code"]
+    assert len(code) >= 20
+    assert code.isalnum()

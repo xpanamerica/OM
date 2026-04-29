@@ -46,3 +46,25 @@ class RegistrationOptionsOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     invite_code_required: bool = Field(description="为 True 时须凭有效邀请码注册。")
+
+
+class AdminRegistrationAttemptItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    ip_address: str
+    user_agent: str | None
+    email: str | None
+    username: str | None
+    invite_code_submitted: str | None
+    success: bool
+    failure_reason: str | None
+    created_user_id: uuid.UUID | None
+    created_at: datetime
+
+
+class AdminRegistrationAttemptListOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AdminRegistrationAttemptItem]
+    total: int = Field(ge=0)

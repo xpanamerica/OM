@@ -58,6 +58,7 @@ def test_non_admin_all_admin_endpoints_return_403(client, db_session):
     assert (
         client.post(f"{base}/invite-codes/{uuid.uuid4()}/revoke", headers=hdr).status_code == 403
     )
+    assert client.get(f"{base}/registration-attempts", headers=hdr).status_code == 403
     assert client.get(f"{base}/statistics/platform", headers=hdr).status_code == 403
     uid = str(uuid.uuid4())
     assert client.patch(f"{base}/users/{uid}/active", headers=hdr, json={"is_active": False}).status_code == 403
@@ -158,6 +159,7 @@ def test_openapi_contains_admin_routes_when_exposed(client):
         f"{prefix}/admin/users",
         f"{prefix}/admin/invite-codes",
         f"{prefix}/admin/invite-codes/{{invite_id}}/revoke",
+        f"{prefix}/admin/registration-attempts",
         f"{prefix}/admin/statistics/platform",
         f"{prefix}/admin/users/{{user_id}}/active",
         f"{prefix}/admin/users/{{user_id}}",

@@ -18,10 +18,21 @@ from app.schemas.admin_management import (
     AdminPlatformStatsOut,
     AdminUserActiveBody,
 )
-from app.schemas.invite_codes import AdminInviteCodeCreate, AdminInviteCodeCreated, AdminInviteCodeItem, AdminInviteCodeListOut
+from app.schemas.invite_codes import (
+    AdminInviteCodeCreate,
+    AdminInviteCodeCreated,
+    AdminInviteCodeItem,
+    AdminInviteCodeListOut,
+    AdminRegistrationAttemptListOut,
+)
 from app.schemas.user import UserPublic
 from app.schemas.video import VideoListItem
-from app.services import admin_management_service, app_settings_service, invite_code_admin_service
+from app.services import (
+    admin_management_service,
+    app_settings_service,
+    invite_code_admin_service,
+    registration_audit_admin_service,
+)
 
 router = APIRouter()
 
@@ -90,6 +101,23 @@ def admin_create_invite_code(
 )
 def admin_revoke_invite_code(db: DbSession, _admin: AdminUser, invite_id: uuid.UUID) -> AdminInviteCodeItem:
     return invite_code_admin_service.revoke_invite_code(db, invite_id)
+
+
+@router.get(
+    "/registration-attempts",
+    response_model=AdminRegistrationAttemptListOut,
+    summary="注册审计列表",
+    description="分页列出公开注册尝试（IP、UA、是否成功等）；须管理员。",
+)
+def admin_list_registration_attempts(
+    response: Response,
+    db: DbSession,
+    _admin: AdminUser,
+    offset: _AdminListOffset = 0,
+    limit: _AdminListLimit = 50,
+) -> AdminRegistrationAttemptListOut:
+    response.headers["Cache-Control"] = MUTABLE_GET_CACHE_CONTROL
+    return registration_audit_admin_service.list_registration_attempts(db, offset=offset, limit=limit)
 
 
 @router.get(

@@ -9,7 +9,13 @@ from app.core.client_ip import resolved_client_ip
 from app.core.config import settings
 from app.core.exceptions import AppError
 from app.core.login_rate_limit import is_login_allowed
-from app.core.security_audit import log_login_denied, log_login_rate_limited, log_register_conflict
+from app.core.register_rate_limit import is_register_allowed
+from app.core.security_audit import (
+    log_login_denied,
+    log_login_rate_limited,
+    log_register_conflict,
+    log_register_rate_limited,
+)
 from app.schemas.auth import Token, UserRegister
 from app.schemas.invite_codes import RegistrationOptionsOut
 from app.schemas.user import UserPublic
@@ -37,6 +43,15 @@ def registration_options(db: DbSession) -> RegistrationOptionsOut:
 )
 def register(request: Request, db: DbSession, body: UserRegister) -> UserPublic:
     ip = resolved_client_ip(request, trust_x_forwarded_for=settings.AUTH_TRUST_X_FORWARDED_FOR)
+    if not is_register_allowed(
+        ip, max_attempts_per_minute=settings.AUTH_REGISTER_MAX_ATTEMPTS_PER_MINUTE
+    ):
+        log_register_rate_limited(ip)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="注册请求过于频繁，请稍后再试",
+            headers={"Retry-After": "60"},
+        )
     ua = request.headers.get("user-agent") or request.headers.get("User-Agent")
     try:
         user = auth_service.register_user(db, body, client_ip=ip, user_agent=ua)

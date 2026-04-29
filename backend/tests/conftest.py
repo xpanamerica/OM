@@ -71,6 +71,7 @@ from app.core.upload_rate_limit import (
     reset_video_upload_rate_limit_state_for_tests,
 )
 from app.core.login_rate_limit import reset_login_rate_limit_state
+from app.core.register_rate_limit import reset_register_rate_limit_state
 from app.core.search_rate_limit import reset_search_rate_limit_state_for_tests
 
 import app.models  # noqa: F401 — 确保 User 等表注册到 metadata
@@ -90,6 +91,7 @@ def _reset_login_rate_limit_between_tests():
     reset_vod_refresh_upload_rate_limit_for_tests()
     purge_vod_refresh_upload_rate_limit_redis_keys_for_tests()
     reset_login_rate_limit_state()
+    reset_register_rate_limit_state()
     reset_search_rate_limit_state_for_tests()
     reset_comment_rate_limit_state()
     purge_comment_rate_limit_redis_keys_for_tests()
@@ -105,6 +107,7 @@ def _reset_login_rate_limit_between_tests():
     reset_vod_refresh_upload_rate_limit_for_tests()
     purge_vod_refresh_upload_rate_limit_redis_keys_for_tests()
     reset_login_rate_limit_state()
+    reset_register_rate_limit_state()
     reset_search_rate_limit_state_for_tests()
     reset_comment_rate_limit_state()
     purge_comment_rate_limit_redis_keys_for_tests()

@@ -3,6 +3,9 @@ from __future__ import annotations
 import logging
 import uuid
 
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
 from app.db.session import SessionLocal
 from app.models.registration_attempt import RegistrationAttempt
 
@@ -37,3 +40,18 @@ def record_registration_attempt(
             db.commit()
     except Exception:
         _log.exception("registration_attempt_persist_failed")
+
+
+def list_registration_attempts(
+    db: Session, *, offset: int, limit: int
+) -> tuple[list[RegistrationAttempt], int]:
+    total = int(db.scalar(select(func.count()).select_from(RegistrationAttempt)) or 0)
+    rows = list(
+        db.scalars(
+            select(RegistrationAttempt)
+            .order_by(RegistrationAttempt.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        ).all()
+    )
+    return rows, total

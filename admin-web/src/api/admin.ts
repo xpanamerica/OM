@@ -65,6 +65,24 @@ export type AdminInviteCodeListOut = {
   total: number;
 };
 
+export type AdminRegistrationAttemptItem = {
+  id: string;
+  ip_address: string;
+  user_agent: string | null;
+  email: string | null;
+  username: string | null;
+  invite_code_submitted: string | null;
+  success: boolean;
+  failure_reason: string | null;
+  created_user_id: string | null;
+  created_at: string;
+};
+
+export type AdminRegistrationAttemptListOut = {
+  items: AdminRegistrationAttemptItem[];
+  total: number;
+};
+
 export async function adminListVideos(params: {
   offset: number;
   limit: number;
@@ -137,5 +155,13 @@ export async function adminCreateInviteCode(body: {
 
 export async function adminRevokeInviteCode(inviteId: string): Promise<AdminInviteCodeItem> {
   const { data } = await http.post<AdminInviteCodeItem>(`/admin/invite-codes/${inviteId}/revoke`);
+  return data;
+}
+
+export async function adminListRegistrationAttempts(params: {
+  offset: number;
+  limit: number;
+}): Promise<AdminRegistrationAttemptListOut> {
+  const { data } = await http.get<AdminRegistrationAttemptListOut>("/admin/registration-attempts", { params });
   return data;
 }

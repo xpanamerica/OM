@@ -39,7 +39,8 @@ def list_invite_codes(db: Session, *, offset: int, limit: int) -> AdminInviteCod
 
 
 def create_invite_code(db: Session, admin: User, body: AdminInviteCodeCreate) -> AdminInviteCodeCreated:
-    raw = secrets.token_hex(8).upper()
+    # 96-bit 随机性（24 hex）；较 16 hex 更难枚举
+    raw = secrets.token_hex(12).upper()
     row = invite_code_repository.create_invite(
         db,
         code=raw,

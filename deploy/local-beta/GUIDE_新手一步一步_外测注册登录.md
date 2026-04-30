@@ -102,7 +102,7 @@ ADMIN_URL=https://admin.omhengpin.com \
 bash deploy/cloudflare-tunnel/verify_cloudflare_tunnel.sh
 ```
 
-
+后台登录恢复码属于敏感凭据，请只保存到密码管理器或离线安全位置，不要写入仓库或文档。
 
 ---
 

@@ -17,6 +17,19 @@ def test_create_decode_roundtrip():
     assert decode_access_token(tok) == uid
 
 
+def test_access_token_default_ttl_is_15_minutes():
+    uid = uuid.uuid4()
+    tok = create_access_token(subject=str(uid))
+    payload = jwt.decode(
+        tok,
+        settings.SECRET_KEY.get_secret_value(),
+        algorithms=[ALGORITHM],
+        audience=settings.APP_NAME.strip(),
+        issuer=settings.APP_NAME.strip(),
+    )
+    assert payload["exp"] - payload["iat"] == 15 * 60
+
+
 def test_decode_rejects_token_without_aud():
     realm = settings.APP_NAME.strip()
     now = datetime.now(tz=UTC)

@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.core.exceptions import AppError
 from app.core.security import get_password_hash
 from app.repositories import password_reset_repository, security_event_repository, user_repository
+from app.services import refresh_token_service
 
 _log = logging.getLogger("app.password_reset")
 
@@ -119,6 +120,12 @@ def complete_password_reset(
     hp = get_password_hash(new_password)
     user_repository.update_user_hashed_password(db, user_id=user.id, hashed_password=hp)
     password_reset_repository.mark_used(db, token_id=row.id)
+    refresh_token_service.revoke_all_for_user(
+        db,
+        user_id=user.id,
+        ip_address=client_ip,
+        detail="password_reset",
+    )
     db.commit()
     auth_rate_limit.clear_login_failures(user.email)
     auth_rate_limit.clear_login_failures(user.username)

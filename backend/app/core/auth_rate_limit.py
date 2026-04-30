@@ -39,6 +39,7 @@ _mem_login_ip: dict[str, deque[float]] = defaultdict(deque)
 _mem_login_fail: dict[str, deque[float]] = defaultdict(deque)
 _mem_forgot_ip: dict[str, deque[float]] = defaultdict(deque)
 _mem_forgot_email: dict[str, deque[float]] = defaultdict(deque)
+_mem_mfa: dict[str, deque[float]] = defaultdict(deque)
 
 _LUA_ZSET_CONSUME = """
 local key = KEYS[1]
@@ -203,6 +204,7 @@ def reset_auth_rate_limit_memory_for_tests() -> None:
         _mem_login_fail.clear()
         _mem_forgot_ip.clear()
         _mem_forgot_email.clear()
+        _mem_mfa.clear()
 
 
 def reset_auth_rate_limit_redis_probe_state_for_tests() -> None:
@@ -395,6 +397,52 @@ def try_consume_login_ip(client_ip: str) -> tuple[bool, int | None]:
             wait = int(math.ceil(win - (now - q[0])))
             inc_auth_rate_limit_exceeded("login_ip")
             return False, max(1, wait)
+        q.append(now)
+        return True, None
+
+
+def try_consume_mfa_attempt(*, challenge_token: str, client_ip: str, user_id: str | None = None) -> tuple[bool, int | None]:
+    if not settings.AUTH_RATE_LIMIT_ENABLED:
+        return True, None
+    win = int(settings.AUTH_RATE_LIMIT_MFA_WINDOW_SECONDS)
+    lim = int(settings.AUTH_RATE_LIMIT_MFA_MAX_ATTEMPTS)
+    token_hash = hashlib.sha256(challenge_token.strip().encode("utf-8")).hexdigest()[:40]
+    ip_tok = _ip_bucket(client_ip)
+    user_tok = _subject_hash(user_id or "unknown")[:40]
+    bucket = f"{token_hash}:{ip_tok}:{user_tok}"
+    if _use_redis():
+        try:
+            r = get_redis()
+            key = f"{RL_PREFIX}:mfa:w{win}:{bucket}"
+            now = time.time()
+            member = f"{now:.6f}:{uuid.uuid4().hex}"
+            raw = _eval_sha_with_noscript_retry(
+                r,
+                cache_key="auth_rl:lua:zset_consume:v2",
+                source=_LUA_ZSET_CONSUME,
+                numkeys=1,
+                keys_and_argv=[key, now, win, lim, member],
+            )
+            ok = int(raw[0]) == 1
+            retry = int(raw[1]) if not ok else 0
+            if not ok:
+                inc_auth_rate_limit_exceeded("mfa")
+            return ok, (retry if retry >= 1 else None)
+        except RedisError as e:
+            logger.warning("auth_rate_limit mfa redis failed: %s", e)
+            inc_auth_rate_limit_redis_errors()
+            _refresh_redis_availability_after_command_error()
+            if not settings.AUTH_RATE_LIMIT_REDIS_FALLBACK_MEMORY:
+                raise
+            inc_auth_rate_limit_memory_fallback()
+    now = time.monotonic()
+    with _lock:
+        q = _mem_mfa[bucket]
+        while q and now - q[0] > win:
+            q.popleft()
+        if len(q) >= lim:
+            inc_auth_rate_limit_exceeded("mfa")
+            return False, max(1, int(math.ceil(win - (now - q[0]))))
         q.append(now)
         return True, None
 

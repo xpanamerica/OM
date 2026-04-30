@@ -14,11 +14,14 @@ from app.models.tag import Tag
 from app.models.upload_intent import UploadIntent
 from app.models.registration_attempt import RegistrationAttempt
 from app.models.password_reset_token import PasswordResetToken
+from app.models.refresh_token import RefreshToken
 from app.models.security_event import SecurityEvent
 from app.models.user import User
+from app.models.user_auth_state import UserAuthState
 from app.models.user_block import UserBlock
 from app.models.user_follow import UserFollow
 from app.models.user_friend_request import UserFriendRequest
+from app.models.user_mfa_setting import UserMfaSetting
 from app.models.user_notification import UserNotification
 from app.models.user_privacy import UserPrivacySetting
 from app.models.video import Video, video_tags
@@ -48,13 +51,16 @@ __all__ = [
     "LearningPathItem",
     "Tag",
     "RegistrationAttempt",
+    "RefreshToken",
     "SecurityEvent",
     "UploadIntent",
     "User",
+    "UserAuthState",
     "UserAlgorithmState",
     "UserBlock",
     "UserFollow",
     "UserFriendRequest",
+    "UserMfaSetting",
     "UserNotification",
     "UserPrivacySetting",
     "UserRole",

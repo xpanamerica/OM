@@ -43,6 +43,7 @@ async function logout() {
         <el-menu-item index="/settings">平台设置</el-menu-item>
         <el-menu-item index="/invite-codes">内测邀请码</el-menu-item>
         <el-menu-item index="/registration-audit">注册审计</el-menu-item>
+        <el-menu-item index="/security">账号安全</el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>

@@ -35,6 +35,7 @@ def test_production_rejects_postgres_postgres_in_database_url():
             CORS_ORIGINS=_PROD_LIKE_CORS,
             DATABASE_URL="postgresql+psycopg://postgres:postgres@db.internal:5432/videodb",
             REDIS_URL="redis://127.0.0.1:6379/0",
+            REFRESH_TOKEN_COOKIE_SECURE=True,
         )
 
 
@@ -46,6 +47,7 @@ def test_production_environment_requires_48_byte_secret():
             CORS_ORIGINS=_PROD_LIKE_CORS,
             DATABASE_URL=_PROD_LIKE_DB_URL,
             REDIS_URL="redis://127.0.0.1:6379/0",
+            REFRESH_TOKEN_COOKIE_SECURE=True,
         )
 
 
@@ -57,6 +59,7 @@ def test_production_rejects_documents_example_secret_key():
             CORS_ORIGINS=_PROD_LIKE_CORS,
             DATABASE_URL=_PROD_LIKE_DB_URL,
             REDIS_URL="redis://127.0.0.1:6379/0",
+            REFRESH_TOKEN_COOKIE_SECURE=True,
         )
 
 
@@ -68,6 +71,7 @@ def test_production_rejects_unit_test_default_secret_key():
             CORS_ORIGINS=_PROD_LIKE_CORS,
             DATABASE_URL=_PROD_LIKE_DB_URL,
             REDIS_URL="redis://127.0.0.1:6379/0",
+            REFRESH_TOKEN_COOKIE_SECURE=True,
         )
 
 
@@ -78,8 +82,21 @@ def test_production_accepts_48_byte_secret():
         CORS_ORIGINS=_PROD_LIKE_CORS,
         DATABASE_URL=_PROD_LIKE_DB_URL,
         REDIS_URL="redis://127.0.0.1:6379/0",
+        REFRESH_TOKEN_COOKIE_SECURE=True,
     )
     assert len(s.SECRET_KEY.get_secret_value().encode()) == 48
+
+
+def test_production_requires_secure_refresh_cookie():
+    with pytest.raises(ValidationError, match="REFRESH_TOKEN_COOKIE_SECURE"):
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="a" * 48,
+            CORS_ORIGINS=_PROD_LIKE_CORS,
+            DATABASE_URL=_PROD_LIKE_DB_URL,
+            REDIS_URL="redis://127.0.0.1:6379/0",
+            REFRESH_TOKEN_COOKIE_SECURE=False,
+        )
 
 
 def test_secret_key_secretstr_repr_redacts():
@@ -132,6 +149,7 @@ def test_superuser_password_changeme_rejected_in_production():
             FIRST_SUPERUSER_PASSWORD="changeme",
             DATABASE_URL=_PROD_LIKE_DB_URL,
             REDIS_URL="redis://127.0.0.1:6379/0",
+            REFRESH_TOKEN_COOKIE_SECURE=True,
         )
 
 
@@ -189,6 +207,7 @@ def test_expose_openapi_docs_by_environment(env: str, expected: bool):
         CORS_ORIGINS=_PROD_LIKE_CORS if prod_like else None,
         DATABASE_URL=_PROD_LIKE_DB_URL if prod_like else "postgresql+psycopg://postgres:postgres@localhost:5432/videodb",
         REDIS_URL="redis://127.0.0.1:6379/0",
+        REFRESH_TOKEN_COOKIE_SECURE=True if prod_like else False,
     )
     assert s.expose_openapi_docs is expected
 
@@ -201,6 +220,7 @@ def test_expose_openapi_docs_explicit_override_staging_on():
         CORS_ORIGINS=_PROD_LIKE_CORS,
         DATABASE_URL=_PROD_LIKE_DB_URL,
         REDIS_URL="redis://127.0.0.1:6379/0",
+        REFRESH_TOKEN_COOKIE_SECURE=True,
     )
     assert s.expose_openapi_docs is True
 
@@ -224,6 +244,7 @@ def test_production_rejects_cors_wildcard():
             CORS_ORIGINS=["*"],
             DATABASE_URL=_PROD_LIKE_DB_URL,
             REDIS_URL="redis://127.0.0.1:6379/0",
+            REFRESH_TOKEN_COOKIE_SECURE=True,
         )
 
 

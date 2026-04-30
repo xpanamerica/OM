@@ -20,8 +20,12 @@ const loading = ref(false);
 const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? "";
 
 const loginForm = reactive({ username: "", password: "" });
+const mfaForm = reactive({ code: "" });
 const regForm = reactive({ email: "", username: "", password: "", invite_code: "" });
 const inviteRequired = ref(false);
+const mfaChallengeToken = ref("");
+const mfaSetupRequired = ref(false);
+const mfaSetup = ref<authApi.MfaSetup | null>(null);
 const loginFailedCount = ref(0);
 const loginTurnstileToken = ref("");
 const registerTurnstileToken = ref("");
@@ -62,7 +66,16 @@ async function onLogin() {
   }
   loading.value = true;
   try {
-    await auth.login(loginForm.username, loginForm.password, showLoginTurnstile.value ? loginTurnstileToken.value : undefined);
+    const result = await auth.login(loginForm.username, loginForm.password, showLoginTurnstile.value ? loginTurnstileToken.value : undefined);
+    if (result?.mfa_required) {
+      mfaChallengeToken.value = result.mfa_challenge_token || "";
+      mfaSetupRequired.value = Boolean(result.mfa_setup_required);
+      if (mfaSetupRequired.value) {
+        mfaSetup.value = await authApi.startMfaSetup(mfaChallengeToken.value);
+      }
+      ElMessage.info(mfaSetupRequired.value ? "请先启用 MFA 后完成登录" : "请输入 MFA 验证码");
+      return;
+    }
     loginFailedCount.value = 0;
     loginTurnstileToken.value = "";
     const r = typeof route.query.redirect === "string" ? route.query.redirect : "/";
@@ -77,6 +90,27 @@ async function onLogin() {
     }
     loginTurnstileToken.value = "";
     loginTurnstile.value?.reset();
+    ElMessage.error(formatApiError(e));
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function onMfaSubmit() {
+  if (!mfaChallengeToken.value || !mfaForm.code.trim()) return;
+  loading.value = true;
+  try {
+    if (mfaSetupRequired.value) {
+      const enabled = await authApi.enableMfa(mfaForm.code.trim(), mfaChallengeToken.value);
+      if (enabled.recovery_codes.length) {
+        ElMessage.success(`MFA 已启用，请保存恢复码：${enabled.recovery_codes.join(" ")}`);
+      }
+    }
+    await auth.verifyMfaLogin(mfaChallengeToken.value, mfaForm.code.trim());
+    const r = typeof route.query.redirect === "string" ? route.query.redirect : "/";
+    await router.replace(r || "/");
+    ElMessage.success("登录成功");
+  } catch (e) {
     ElMessage.error(formatApiError(e));
   } finally {
     loading.value = false;
@@ -145,6 +179,22 @@ onMounted(() => {
               <el-form-item label="密码">
                 <el-input v-model="loginForm.password" type="password" show-password autocomplete="current-password" />
               </el-form-item>
+              <template v-if="mfaChallengeToken">
+                <el-alert
+                  v-if="mfaSetupRequired && mfaSetup"
+                  class="mfa-alert"
+                  type="warning"
+                  :closable="false"
+                  title="管理员需要先启用 MFA"
+                >
+                  <p>请用认证器 App 扫描或手动输入密钥：</p>
+                  <p class="mfa-secret">{{ mfaSetup.secret }}</p>
+                  <p class="mfa-uri">{{ mfaSetup.otpauth_uri }}</p>
+                </el-alert>
+                <el-form-item label="MFA 验证码">
+                  <el-input v-model="mfaForm.code" autocomplete="one-time-code" placeholder="6 位验证码或恢复码" />
+                </el-form-item>
+              </template>
               <el-form-item v-if="showLoginTurnstile" label="验证">
                 <TurnstileWidget
                   v-if="turnstileSiteKey"
@@ -158,7 +208,8 @@ onMounted(() => {
                 <p v-else class="reg-hint">人机验证暂未配置，请联系管理员。</p>
               </el-form-item>
               <el-form-item>
-                <el-button type="primary" native-type="submit" :loading="loading">登录</el-button>
+                <el-button v-if="!mfaChallengeToken" type="primary" native-type="submit" :loading="loading">登录</el-button>
+                <el-button v-else type="primary" :loading="loading" @click="onMfaSubmit">完成 MFA 登录</el-button>
                 <el-button @click="router.push('/')">返回首页</el-button>
               </el-form-item>
             </el-form>
@@ -228,6 +279,14 @@ onMounted(() => {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   line-height: 1.5;
+}
+.mfa-alert {
+  margin-bottom: 16px;
+}
+.mfa-secret,
+.mfa-uri {
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (max-width: 767px) {
   .auth-shell {

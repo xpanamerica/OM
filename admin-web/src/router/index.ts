@@ -14,6 +14,7 @@ const PlatformStatsView = () => import("@/views/PlatformStatsView.vue");
 const PlatformSettingsView = () => import("@/views/PlatformSettingsView.vue");
 const InviteCodesView = () => import("@/views/InviteCodesView.vue");
 const RegistrationAuditView = () => import("@/views/RegistrationAuditView.vue");
+const SecurityView = () => import("@/views/SecurityView.vue");
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -90,6 +91,12 @@ const router = createRouter({
           name: "registration-audit",
           component: RegistrationAuditView,
           meta: { title: "注册审计" },
+        },
+        {
+          path: "security",
+          name: "security",
+          component: SecurityView,
+          meta: { title: "账号安全" },
         },
         {
           path: ":pathMatch(.*)*",

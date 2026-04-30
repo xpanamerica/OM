@@ -10,6 +10,7 @@ const LearningPathListView = () => import("@/views/LearningPathListView.vue");
 const LearningPathDetailView = () => import("@/views/LearningPathDetailView.vue");
 const ConceptDetailView = () => import("@/views/ConceptDetailView.vue");
 const ProfileView = () => import("@/views/ProfileView.vue");
+const SecurityView = () => import("@/views/SecurityView.vue");
 const HistoryView = () => import("@/views/HistoryView.vue");
 const FavoritesView = () => import("@/views/FavoritesView.vue");
 const NativeFeedView = () => import("@/views/native/NativeFeedView.vue");
@@ -72,6 +73,12 @@ const router = createRouter({
           name: "history",
           component: HistoryView,
           meta: { title: "历史记录", requiresAuth: true },
+        },
+        {
+          path: "me/security",
+          name: "security",
+          component: SecurityView,
+          meta: { title: "账号安全", requiresAuth: true },
         },
         {
           path: "me/favorites",

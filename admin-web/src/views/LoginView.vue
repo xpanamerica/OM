@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import axios from "axios";
 import { ElMessage } from "@/util/elementPlusMessage";
 import { useAuthStore } from "@/stores/auth";
+import * as authApi from "@/api/auth";
 import { formatApiError } from "@/util/errors";
 import TurnstileWidget from "@/components/TurnstileWidget.vue";
 
@@ -16,6 +17,10 @@ const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? "";
 /** 两项拆成独立 ref，且不用 el-form：避免 Element Plus Form 在嵌入式 WebView（如 Cursor Simple Browser）里切换焦点时错误重置字段。 */
 const username = ref("");
 const password = ref("");
+const mfaCode = ref("");
+const mfaChallengeToken = ref("");
+const mfaSetupRequired = ref(false);
+const mfaSetup = ref<authApi.MfaSetup | null>(null);
 const failedCount = ref(0);
 const turnstileToken = ref("");
 const turnstile = ref<InstanceType<typeof TurnstileWidget> | null>(null);
@@ -45,7 +50,16 @@ async function onSubmit() {
   }
   loading.value = true;
   try {
-    await auth.login(username.value.trim(), password.value, showTurnstile.value ? turnstileToken.value : undefined);
+    const result = await auth.login(username.value.trim(), password.value, showTurnstile.value ? turnstileToken.value : undefined);
+    if (result?.mfa_required) {
+      mfaChallengeToken.value = result.mfa_challenge_token || "";
+      mfaSetupRequired.value = Boolean(result.mfa_setup_required);
+      if (mfaSetupRequired.value) {
+        mfaSetup.value = await authApi.startMfaSetup(mfaChallengeToken.value);
+      }
+      ElMessage.info(mfaSetupRequired.value ? "管理员需要先启用 MFA" : "请输入 MFA 验证码");
+      return;
+    }
     failedCount.value = 0;
     turnstileToken.value = "";
     const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/";
@@ -60,6 +74,26 @@ async function onSubmit() {
     }
     turnstileToken.value = "";
     turnstile.value?.reset();
+    ElMessage.error(formatApiError(e));
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function onMfaSubmit() {
+  loading.value = true;
+  try {
+    if (mfaSetupRequired.value) {
+      const enabled = await authApi.enableMfa(mfaCode.value.trim(), mfaChallengeToken.value);
+      if (enabled.recovery_codes.length) {
+        ElMessage.success(`MFA 已启用，请保存恢复码：${enabled.recovery_codes.join(" ")}`);
+      }
+    }
+    await auth.verifyMfaLogin(mfaChallengeToken.value, mfaCode.value.trim());
+    const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/";
+    await router.replace(redirect || "/");
+    ElMessage.success("登录成功");
+  } catch (e) {
     ElMessage.error(formatApiError(e));
   } finally {
     loading.value = false;
@@ -105,6 +139,21 @@ watch(username, () => {
             input-style="width: 100%"
           />
         </div>
+        <div v-if="mfaChallengeToken" class="row">
+          <label class="label" for="admin-login-mfa">MFA</label>
+          <div class="turnstile-cell">
+            <el-alert
+              v-if="mfaSetupRequired && mfaSetup"
+              type="warning"
+              :closable="false"
+              title="首次登录管理后台需启用 MFA"
+            >
+              <p>认证器密钥：{{ mfaSetup.secret }}</p>
+              <p class="hint break">{{ mfaSetup.otpauth_uri }}</p>
+            </el-alert>
+            <el-input id="admin-login-mfa" v-model="mfaCode" autocomplete="one-time-code" placeholder="6 位验证码或恢复码" />
+          </div>
+        </div>
         <div v-if="showTurnstile" class="row">
           <label class="label">验证</label>
           <div class="turnstile-cell">
@@ -121,7 +170,8 @@ watch(username, () => {
           </div>
         </div>
         <div class="actions">
-          <el-button type="primary" native-type="submit" :loading="loading">登录</el-button>
+          <el-button v-if="!mfaChallengeToken" type="primary" native-type="submit" :loading="loading">登录</el-button>
+          <el-button v-else type="primary" :loading="loading" @click="onMfaSubmit">完成 MFA 登录</el-button>
         </div>
       </form>
     </el-card>
@@ -166,6 +216,9 @@ watch(username, () => {
   margin: 0;
   color: #909399;
   font-size: 12px;
+}
+.break {
+  word-break: break-all;
 }
 .actions {
   padding-left: 96px;

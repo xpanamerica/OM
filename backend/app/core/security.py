@@ -1,3 +1,5 @@
+import json
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -14,6 +16,56 @@ ALGORITHM = "HS256"
 BCRYPT_TIMING_DUMMY_HASH = (
     "$2b$12$3X5QokBXL5Y5W39TNKvqEuEjsCwGXbaK3cKy6WDRDEjJDco9E2hUq"
 )
+
+
+@dataclass(frozen=True)
+class JwtSigningKey:
+    secret: str
+    not_after: int | None = None
+
+
+def _timestamp(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    s = str(value).strip()
+    if not s:
+        return None
+    if s.isdigit():
+        return int(s)
+    return int(datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp())
+
+
+def _jwt_signing_keys() -> dict[str, JwtSigningKey]:
+    raw = (settings.JWT_SIGNING_KEYS or "").strip()
+    if not raw:
+        return {settings.JWT_CURRENT_KID: JwtSigningKey(settings.SECRET_KEY.get_secret_value())}
+    out: dict[str, JwtSigningKey] = {}
+    if raw.startswith("{"):
+        data = json.loads(raw)
+        current = str(data.get("current") or settings.JWT_CURRENT_KID)
+        for item in data.get("keys") or []:
+            kid = str(item.get("kid") or "").strip()
+            secret = str(item.get("secret") or "").strip()
+            if kid and secret:
+                out[kid] = JwtSigningKey(secret=secret, not_after=_timestamp(item.get("not_after")))
+        if current and current != settings.JWT_CURRENT_KID and settings.JWT_CURRENT_KID not in out:
+            out[settings.JWT_CURRENT_KID] = out.get(current) or JwtSigningKey(settings.SECRET_KEY.get_secret_value())
+        if settings.JWT_CURRENT_KID not in out:
+            out[settings.JWT_CURRENT_KID] = JwtSigningKey(settings.SECRET_KEY.get_secret_value())
+        return out
+    for part in raw.split(","):
+        if ":" not in part:
+            continue
+        kid, secret = part.split(":", 1)
+        kid = kid.strip()
+        secret = secret.strip()
+        if kid and secret:
+            out[kid] = JwtSigningKey(secret=secret)
+    if settings.JWT_CURRENT_KID not in out:
+        out[settings.JWT_CURRENT_KID] = JwtSigningKey(settings.SECRET_KEY.get_secret_value())
+    return out
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -40,7 +92,12 @@ def create_access_token(*, subject: str, expires_delta: timedelta | None = None)
         "iss": realm,
         "aud": realm,
     }
-    return jwt.encode(payload, settings.SECRET_KEY.get_secret_value(), algorithm=ALGORITHM)
+    keys = _jwt_signing_keys()
+    kid = settings.JWT_CURRENT_KID
+    key = keys[kid]
+    if key.not_after is not None and key.not_after <= int(now.timestamp()):
+        raise ValueError("JWT_CURRENT_KID 已过期，拒绝继续签发新 token")
+    return jwt.encode(payload, key.secret, algorithm=ALGORITHM, headers={"kid": kid})
 
 
 def decode_access_token(token: str) -> UUID | None:
@@ -49,9 +106,17 @@ def decode_access_token(token: str) -> UUID | None:
         return None
     realm = settings.APP_NAME.strip()
     try:
+        header = jwt.get_unverified_header(raw)
+        kid = str(header.get("kid") or settings.JWT_CURRENT_KID)
+        key = _jwt_signing_keys().get(kid)
+        if key is None:
+            return None
+        now_ts = int(datetime.now(tz=UTC).timestamp())
+        if key.not_after is not None and key.not_after + (settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60) < now_ts:
+            return None
         payload = jwt.decode(
             raw,
-            settings.SECRET_KEY.get_secret_value(),
+            key.secret,
             algorithms=[ALGORITHM],
             audience=realm,
             issuer=realm,

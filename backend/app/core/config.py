@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any, Self
 
@@ -77,7 +78,53 @@ class Settings(BaseSettings):
     )
 
     SECRET_KEY: SecretStr = Field(description="JWT HMAC 密钥，UTF-8 至少 32 字节")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, ge=1, le=60 * 24 * 30)
+    JWT_CURRENT_KID: str = Field(default="default", min_length=1, max_length=64)
+    JWT_SIGNING_KEYS: str | None = Field(
+        default=None,
+        description=(
+            "可选 JWT 多密钥配置。兼容 kid:secret,kid2:secret；推荐 JSON："
+            '{"current":"k2","keys":[{"kid":"k1","secret":"...","not_after":1893456000},{"kid":"k2","secret":"..."}]}。'
+        ),
+    )
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=15, ge=1, le=60 * 24 * 30)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(
+        default=30,
+        ge=7,
+        le=30,
+        description="Refresh token 有效期（天），合规范围 7-30 天。",
+    )
+    REFRESH_TOKEN_COOKIE_NAME: str = Field(
+        default="om_refresh_token",
+        min_length=1,
+        max_length=128,
+        description="HttpOnly refresh token Cookie 名称。",
+    )
+    REFRESH_TOKEN_COOKIE_PATH: str = Field(
+        default="/api/v1/auth",
+        min_length=1,
+        max_length=256,
+        description="Refresh token Cookie 路径，仅认证端点携带。",
+    )
+    REFRESH_TOKEN_COOKIE_SECURE: bool = Field(
+        default=False,
+        description="是否给 refresh token Cookie 设置 Secure；HTTPS/生产建议开启。",
+    )
+    REFRESH_TOKEN_COOKIE_SAMESITE: str = Field(
+        default="lax",
+        description="Refresh token Cookie SameSite 策略：lax/strict/none。",
+    )
+    CSRF_COOKIE_NAME: str = Field(
+        default="om_csrf_token",
+        min_length=1,
+        max_length=128,
+        description="双提交 CSRF token Cookie 名称（非 HttpOnly，供前端读取）。",
+    )
+    CSRF_HEADER_NAME: str = Field(
+        default="X-CSRF-Token",
+        min_length=1,
+        max_length=128,
+        description="双提交 CSRF token 请求头名称。",
+    )
 
     DATABASE_URL: str = Field(min_length=1)
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -142,6 +189,18 @@ class Settings(BaseSettings):
         ge=1,
         le=10_000,
         description="同一登录标识在上述窗口内允许的最大失败次数，达到后拒绝登录直至窗口滑动。",
+    )
+    AUTH_RATE_LIMIT_MFA_MAX_ATTEMPTS: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description="MFA challenge 在窗口内允许的最大失败/验证尝试次数。",
+    )
+    AUTH_RATE_LIMIT_MFA_WINDOW_SECONDS: int = Field(
+        default=300,
+        ge=60,
+        le=3600,
+        description="MFA challenge 尝试次数滑动窗口（秒），默认等于挑战有效期 5 分钟。",
     )
     AUTH_RATE_LIMIT_FORGOT_PER_IP_PER_HOUR: int = Field(
         default=3,
@@ -538,6 +597,23 @@ class Settings(BaseSettings):
             raise ValueError("TURNSTILE_BYPASS=true 仅允许在 NODE_ENV=test 时使用")
         return self
 
+    @field_validator("REFRESH_TOKEN_COOKIE_SAMESITE", mode="before")
+    @classmethod
+    def normalize_refresh_cookie_samesite(cls, v: Any) -> Any:
+        s = "lax" if v is None else str(v).strip().lower()
+        if s not in {"lax", "strict", "none"}:
+            raise ValueError("REFRESH_TOKEN_COOKIE_SAMESITE 须为 lax、strict 或 none")
+        return s
+
+    @model_validator(mode="after")
+    def secure_refresh_cookie_in_production_like(self) -> Self:
+        e = self.ENVIRONMENT.strip().lower()
+        if e in ("production", "prod", "staging") and not self.REFRESH_TOKEN_COOKIE_SECURE:
+            raise ValueError("生产类环境必须设置 REFRESH_TOKEN_COOKIE_SECURE=true")
+        if self.REFRESH_TOKEN_COOKIE_SAMESITE == "none" and not self.REFRESH_TOKEN_COOKIE_SECURE:
+            raise ValueError("SameSite=None 必须配合 REFRESH_TOKEN_COOKIE_SECURE=true")
+        return self
+
     @field_validator("TURNSTILE_SECRET", mode="before")
     @classmethod
     def empty_turnstile_secret_none(cls, v: Any) -> Any:
@@ -763,6 +839,38 @@ class Settings(BaseSettings):
             out = [str(x).strip() for x in v if str(x).strip()]
             return out if out else ["*"]
         raise ValueError("CORS_ORIGINS 须为逗号分隔字符串或字符串列表")
+
+    @field_validator("JWT_SIGNING_KEYS", mode="before")
+    @classmethod
+    def validate_jwt_signing_keys_shape(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("JWT_SIGNING_KEYS 须为字符串")
+        s = v.strip()
+        if not s:
+            return None
+        if s.startswith("{"):
+            try:
+                data = json.loads(s)
+            except json.JSONDecodeError as e:
+                raise ValueError("JWT_SIGNING_KEYS JSON 格式无效") from e
+            keys = data.get("keys")
+            if not isinstance(keys, list) or not keys:
+                raise ValueError("JWT_SIGNING_KEYS JSON 须包含非空 keys 数组")
+            for item in keys:
+                if not isinstance(item, dict) or not item.get("kid") or not item.get("secret"):
+                    raise ValueError("JWT_SIGNING_KEYS 每个 key 须包含 kid 与 secret")
+                if len(str(item["secret"]).encode("utf-8")) < 32:
+                    raise ValueError("JWT_SIGNING_KEYS 中每个 secret UTF-8 编码须至少 32 字节")
+            return s
+        for part in s.split(","):
+            if ":" not in part:
+                raise ValueError("JWT_SIGNING_KEYS 兼容格式须为 kid:secret,kid2:secret")
+            kid, secret = part.split(":", 1)
+            if not kid.strip() or len(secret.strip().encode("utf-8")) < 32:
+                raise ValueError("JWT_SIGNING_KEYS 兼容格式中 kid 不能为空，secret 至少 32 字节")
+        return s
 
     @model_validator(mode="after")
     def cors_tighten_in_production_like(self) -> Self:

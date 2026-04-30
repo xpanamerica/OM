@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -65,8 +66,64 @@ class UserRegister(BaseModel):
 
 
 class Token(BaseModel):
-    access_token: str
+    access_token: str | None = None
     token_type: str = "bearer"
+    mfa_required: bool = False
+    mfa_setup_required: bool = False
+    mfa_challenge_token: str | None = None
+
+
+class MfaStatusOut(BaseModel):
+    enabled: bool
+    required: bool
+    setup_required: bool
+
+
+class MfaSetupIn(BaseModel):
+    mfa_challenge_token: str | None = Field(default=None, min_length=16, max_length=1024)
+
+
+class MfaSetupOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
+class MfaEnableIn(BaseModel):
+    code: str = Field(min_length=6, max_length=64)
+    mfa_challenge_token: str | None = Field(default=None, min_length=16, max_length=1024)
+
+
+class MfaEnableOut(BaseModel):
+    enabled: bool = True
+    recovery_codes: list[str] = Field(default_factory=list)
+
+
+class MfaVerifyLoginIn(BaseModel):
+    mfa_challenge_token: str = Field(min_length=16, max_length=1024)
+    code: str = Field(min_length=6, max_length=64)
+
+
+class MfaDisableIn(BaseModel):
+    code: str = Field(min_length=6, max_length=64)
+
+
+class AuthSessionOut(BaseModel):
+    id: str
+    device_label: str | None = None
+    ip_address: str | None = None
+    user_agent: str | None = None
+    created_at: datetime
+    last_used_at: datetime | None = None
+    expires_at: datetime
+    is_current: bool = False
+
+
+class AuthSessionsOut(BaseModel):
+    sessions: list[AuthSessionOut]
+
+
+class RevokeOtherSessionsOut(BaseModel):
+    revoked_count: int
 
 
 class ForgotPasswordIn(BaseModel):

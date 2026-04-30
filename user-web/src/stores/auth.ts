@@ -3,46 +3,50 @@ import { ref, computed } from "vue";
 import * as authApi from "@/api/auth";
 import * as usersApi from "@/api/users";
 
-const STORAGE_KEY = "user_access_token";
+const CHANNEL_NAME = "user_auth_session";
 
 let crossTabListenerBound = false;
+let channel: BroadcastChannel | null = null;
 
 export const useAuthStore = defineStore("auth", () => {
-  const token = ref<string>(localStorage.getItem(STORAGE_KEY) ?? "");
+  const token = ref<string>("");
   const user = ref<usersApi.UserPublic | null>(null);
 
   const isLoggedIn = computed(() => Boolean(token.value));
 
   function setToken(t: string) {
     token.value = t;
-    if (t) localStorage.setItem(STORAGE_KEY, t);
-    else localStorage.removeItem(STORAGE_KEY);
   }
 
-  /** 其它标签页登录/退出时同步本会话，避免「一边已登出一边仍带旧 Token 请求」 */
+  function broadcast(type: "login" | "logout") {
+    channel?.postMessage({ type });
+  }
+
+  /** 其它标签页登录/退出时同步状态，但不广播 access token。 */
   function attachCrossTabSessionSync() {
     if (typeof window === "undefined" || crossTabListenerBound) return;
     crossTabListenerBound = true;
-    window.addEventListener("storage", (e: StorageEvent) => {
-      if (e.key !== STORAGE_KEY || e.storageArea !== localStorage) return;
-      if (!e.newValue) {
-        if (token.value) {
-          token.value = "";
-          user.value = null;
+    if ("BroadcastChannel" in window) {
+      channel = new BroadcastChannel(CHANNEL_NAME);
+      channel.onmessage = (e: MessageEvent<{ type?: string }>) => {
+        if (e.data?.type === "logout") {
+          clearSession();
+        } else if (e.data?.type === "login" && !token.value) {
+          void restoreSession();
         }
-        return;
       }
-      if (e.newValue !== token.value) {
-        token.value = e.newValue;
-        void fetchMe().catch(() => logout());
-      }
-    });
+    }
+  }
+
+  function clearSession() {
+    token.value = "";
+    user.value = null;
   }
 
   function logout() {
-    token.value = "";
-    user.value = null;
-    localStorage.removeItem(STORAGE_KEY);
+    void authApi.logout().catch(() => undefined);
+    clearSession();
+    broadcast("logout");
   }
 
   async function fetchMe() {
@@ -52,7 +56,29 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   async function login(username: string, password: string, turnstileToken?: string) {
-    const { access_token } = await authApi.login(username, password, turnstileToken);
+    const result = await authApi.login(username, password, turnstileToken);
+    if (result.mfa_required) return result;
+    const access_token = result.access_token;
+    if (!access_token) throw new Error("登录响应缺少 access token");
+    setToken(access_token);
+    await fetchMe();
+    broadcast("login");
+    return result;
+  }
+
+  async function verifyMfaLogin(challengeToken: string, code: string) {
+    const result = await authApi.verifyMfaLogin(challengeToken, code);
+    const access_token = result.access_token;
+    if (!access_token) throw new Error("MFA 登录响应缺少 access token");
+    setToken(access_token);
+    await fetchMe();
+    broadcast("login");
+    return result;
+  }
+
+  async function restoreSession() {
+    const { access_token } = await authApi.refreshAccessToken();
+    if (!access_token) throw new Error("刷新响应缺少 access token");
     setToken(access_token);
     await fetchMe();
   }
@@ -67,9 +93,12 @@ export const useAuthStore = defineStore("auth", () => {
     isLoggedIn,
     setToken,
     attachCrossTabSessionSync,
+    clearSession,
     logout,
     fetchMe,
     login,
+    verifyMfaLogin,
+    restoreSession,
     registerAndHintLogin,
   };
 });

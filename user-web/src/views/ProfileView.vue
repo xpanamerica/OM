@@ -42,6 +42,7 @@ async function logout() {
     <nav class="quick" aria-label="账号功能">
       <RouterLink class="quick__a" to="/me/history">播放记录</RouterLink>
       <RouterLink class="quick__a" to="/me/favorites">我的收藏</RouterLink>
+      <RouterLink class="quick__a" to="/me/security">账号安全</RouterLink>
     </nav>
 
     <div class="algorithm-entry">

@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.security import BEARER_WWW_AUTHENTICATE, decode_access_token
 from app.models.enums import UserRole
 from app.models.user import User
-from app.repositories import user_repository
+from app.repositories import user_mfa_repository, user_repository
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_PREFIX}/auth/login",
@@ -79,9 +79,12 @@ def get_current_user_optional(
 OptionalUser = Annotated[User | None, Depends(get_current_user_optional)]
 
 
-def require_admin(user: CurrentUser) -> User:
+def require_admin(db: DbSession, user: CurrentUser) -> User:
     if user.role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
+    mfa = user_mfa_repository.get(db, user_id=user.id)
+    if not (mfa and mfa.enabled and mfa.totp_secret_sealed):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="管理员必须先启用 MFA")
     return user
 
 

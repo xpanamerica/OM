@@ -1,11 +1,25 @@
-from sqlalchemy import select
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import func, select, update
 from pydantic import SecretStr
 
+from app.core import security
 from app.core import config as config_module
 from app.core.config import settings
+from app.models.enums import UserRole
+from app.models.refresh_token import RefreshToken
+from app.models.security_event import SecurityEvent
 from app.models.user import User
+from app.models.user_auth_state import UserAuthState
+from app.services import mfa_service
 from app.services import turnstile_service
 from tests.support.openapi_contracts import assert_openapi_paths, collect_operation_tags, openapi_skip_unless_exposed
+
+
+def _csrf_headers(client) -> dict[str, str]:
+    token = client.cookies.get(settings.CSRF_COOKIE_NAME)
+    assert token
+    return {settings.CSRF_HEADER_NAME: token}
 
 
 def test_register_login_me(client):
@@ -38,6 +52,233 @@ def test_register_login_me(client):
     assert r3.status_code == 200, r3.json()
     assert "private" in (r3.headers.get("cache-control") or "").lower()
     assert r3.json()["username"] == "alice"
+
+
+def test_refresh_token_cookie_rotates_and_reuse_revokes_session(client, db_session):
+    prefix = settings.API_V1_PREFIX
+    assert client.post(
+        f"{prefix}/auth/register",
+        json={"email": "refresh@example.com", "username": "refreshuser", "password": "secret1234"},
+    ).status_code == 201
+    login = client.post(
+        f"{prefix}/auth/login",
+        data={"username": "refreshuser", "password": "secret1234"},
+    )
+    assert login.status_code == 200, login.text
+    old_cookie = client.cookies.get(settings.REFRESH_TOKEN_COOKIE_NAME)
+    assert old_cookie
+
+    missing_csrf = client.post(f"{prefix}/auth/refresh")
+    assert missing_csrf.status_code == 401
+
+    refreshed = client.post(f"{prefix}/auth/refresh", headers=_csrf_headers(client))
+    assert refreshed.status_code == 200, refreshed.text
+    assert "access_token" in refreshed.json()
+
+    db_session.expire_all()
+    rows = db_session.execute(select(RefreshToken).order_by(RefreshToken.created_at)).scalars().all()
+    assert len(rows) == 2
+    assert sum(1 for row in rows if row.revoked_at is None) == 1
+    assert sum(1 for row in rows if row.revoked_at is not None) == 1
+
+    client.cookies.set(settings.REFRESH_TOKEN_COOKIE_NAME, old_cookie)
+    reused = client.post(f"{prefix}/auth/refresh", headers=_csrf_headers(client))
+    assert reused.status_code == 401
+    db_session.expire_all()
+    active = int(
+        db_session.scalar(
+            select(func.count()).select_from(RefreshToken).where(RefreshToken.revoked_at.is_(None))
+        )
+        or 0
+    )
+    assert active == 0
+
+
+def test_logout_deletes_refresh_token(client, db_session):
+    prefix = settings.API_V1_PREFIX
+    assert client.post(
+        f"{prefix}/auth/register",
+        json={"email": "logout@example.com", "username": "logoutuser", "password": "secret1234"},
+    ).status_code == 201
+    assert client.post(
+        f"{prefix}/auth/login",
+        data={"username": "logoutuser", "password": "secret1234"},
+    ).status_code == 200
+    assert int(db_session.scalar(select(func.count()).select_from(RefreshToken)) or 0) == 1
+    assert client.post(f"{prefix}/auth/logout").status_code == 401
+    logged_out = client.post(f"{prefix}/auth/logout", headers=_csrf_headers(client))
+    assert logged_out.status_code == 204
+    db_session.expire_all()
+    assert int(db_session.scalar(select(func.count()).select_from(RefreshToken)) or 0) == 0
+
+
+def test_totp_mfa_login_challenge_and_recovery_code(client, db_session):
+    prefix = settings.API_V1_PREFIX
+    assert client.post(
+        f"{prefix}/auth/register",
+        json={"email": "mfa@example.com", "username": "mfauser", "password": "secret1234"},
+    ).status_code == 201
+    user = db_session.execute(select(User).where(User.username == "mfauser")).scalar_one()
+    setup = mfa_service.build_setup(db_session, user=user)
+    recovery_codes = mfa_service.enable_mfa(db_session, user=user, code=mfa_service._totp(setup.secret))
+    assert recovery_codes
+
+    login = client.post(f"{prefix}/auth/login", data={"username": "mfauser", "password": "secret1234"})
+    assert login.status_code == 200, login.text
+    body = login.json()
+    assert body["mfa_required"] is True
+    assert body["access_token"] is None
+    challenge = body["mfa_challenge_token"]
+
+    bad = client.post(f"{prefix}/auth/mfa/verify-login", json={"mfa_challenge_token": challenge, "code": "000000"})
+    assert bad.status_code == 401
+
+    ok = client.post(
+        f"{prefix}/auth/mfa/verify-login",
+        json={"mfa_challenge_token": challenge, "code": recovery_codes[0]},
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["access_token"]
+
+    second_use = client.post(
+        f"{prefix}/auth/mfa/verify-login",
+        json={"mfa_challenge_token": challenge, "code": recovery_codes[0]},
+    )
+    assert second_use.status_code == 401
+
+
+def test_mfa_verify_login_is_rate_limited(client, db_session, monkeypatch):
+    from app.core.auth_rate_limit import reset_auth_rate_limit_memory_for_tests
+
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_MFA_MAX_ATTEMPTS", 2)
+    reset_auth_rate_limit_memory_for_tests()
+
+    prefix = settings.API_V1_PREFIX
+    assert client.post(
+        f"{prefix}/auth/register",
+        json={"email": "mfa-limit@example.com", "username": "mfalimit", "password": "secret1234"},
+    ).status_code == 201
+    user = db_session.execute(select(User).where(User.username == "mfalimit")).scalar_one()
+    setup = mfa_service.build_setup(db_session, user=user)
+    mfa_service.enable_mfa(db_session, user=user, code=mfa_service._totp(setup.secret))
+
+    login = client.post(f"{prefix}/auth/login", data={"username": "mfalimit", "password": "secret1234"})
+    challenge = login.json()["mfa_challenge_token"]
+    assert client.post(f"{prefix}/auth/mfa/verify-login", json={"mfa_challenge_token": challenge, "code": "000000"}).status_code == 401
+    assert client.post(f"{prefix}/auth/mfa/verify-login", json={"mfa_challenge_token": challenge, "code": "000000"}).status_code == 401
+    limited = client.post(f"{prefix}/auth/mfa/verify-login", json={"mfa_challenge_token": challenge, "code": "000000"})
+    assert limited.status_code == 429
+
+
+def test_admin_without_mfa_gets_setup_challenge(client, db_session):
+    prefix = settings.API_V1_PREFIX
+    assert client.post(
+        f"{prefix}/auth/register",
+        json={"email": "admin-mfa@example.com", "username": "adminmfa", "password": "secret1234"},
+    ).status_code == 201
+    db_session.execute(update(User).where(User.username == "adminmfa").values(role=UserRole.ADMIN))
+    db_session.commit()
+
+    login = client.post(f"{prefix}/auth/login", data={"username": "adminmfa", "password": "secret1234"})
+    assert login.status_code == 200, login.text
+    body = login.json()
+    assert body["mfa_required"] is True
+    assert body["mfa_setup_required"] is True
+    assert body["mfa_challenge_token"]
+
+
+def test_admin_dependency_rejects_old_admin_token_without_mfa(client, db_session):
+    prefix = settings.API_V1_PREFIX
+    assert client.post(
+        f"{prefix}/auth/register",
+        json={"email": "old-admin@example.com", "username": "oldadmin", "password": "secret1234"},
+    ).status_code == 201
+    user = db_session.execute(select(User).where(User.username == "oldadmin")).scalar_one()
+    db_session.execute(update(User).where(User.id == user.id).values(role=UserRole.ADMIN))
+    db_session.commit()
+    old_token = security.create_access_token(subject=str(user.id))
+    denied = client.get(f"{prefix}/admin/settings", headers={"Authorization": f"Bearer {old_token}"})
+    assert denied.status_code == 403
+
+
+def test_auth_sessions_list_and_revoke_other_session(client, db_session):
+    prefix = settings.API_V1_PREFIX
+    assert client.post(
+        f"{prefix}/auth/register",
+        json={"email": "session@example.com", "username": "sessionuser", "password": "secret1234"},
+    ).status_code == 201
+    login = client.post(
+        f"{prefix}/auth/login",
+        data={"username": "sessionuser", "password": "secret1234"},
+        headers={"User-Agent": "pytest-linux"},
+    )
+    token = login.json()["access_token"]
+
+    sessions = client.get(f"{prefix}/auth/sessions", headers={"Authorization": f"Bearer {token}"})
+    assert sessions.status_code == 200, sessions.text
+    rows = sessions.json()["sessions"]
+    assert len(rows) == 1
+    assert rows[0]["is_current"] is True
+
+    revoke_others = client.post(
+        f"{prefix}/auth/sessions/revoke-others",
+        headers={"Authorization": f"Bearer {token}", **_csrf_headers(client)},
+    )
+    assert revoke_others.status_code == 200
+    assert revoke_others.json()["revoked_count"] == 0
+
+
+def test_jwt_kid_rotation_accepts_current_and_previous_keys(monkeypatch):
+    class DummySettings:
+        APP_NAME = settings.APP_NAME
+        ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+        SECRET_KEY = SecretStr("fallback-secret-key-that-is-long-enough-for-tests")
+        JWT_CURRENT_KID = "new"
+        JWT_SIGNING_KEYS = "old:old-secret-key-that-is-long-enough,new:new-secret-key-that-is-long-enough"
+
+    monkeypatch.setattr(security, "settings", DummySettings())
+    new_token = security.create_access_token(subject="00000000-0000-0000-0000-000000000001")
+    assert security.decode_access_token(new_token)
+
+    DummySettings.JWT_CURRENT_KID = "old"
+    old_token = security.create_access_token(subject="00000000-0000-0000-0000-000000000002")
+    DummySettings.JWT_CURRENT_KID = "new"
+    assert security.decode_access_token(old_token)
+
+
+def test_jwt_json_key_lifecycle_rejects_expired_old_key(monkeypatch):
+    class DummySettings:
+        APP_NAME = settings.APP_NAME
+        ACCESS_TOKEN_EXPIRE_MINUTES = 15
+        SECRET_KEY = SecretStr("fallback-secret-key-that-is-long-enough-for-tests")
+        JWT_CURRENT_KID = "new"
+        JWT_SIGNING_KEYS = (
+            '{"keys":['
+            '{"kid":"old","secret":"old-secret-key-that-is-long-enough","not_after":1},'
+            '{"kid":"new","secret":"new-secret-key-that-is-long-enough"}'
+            "]}"
+        )
+
+    monkeypatch.setattr(security, "settings", DummySettings())
+    new_token = security.create_access_token(subject="00000000-0000-0000-0000-000000000003")
+    assert security.decode_access_token(new_token)
+
+    now = datetime.now(tz=UTC)
+    old_token = security.jwt.encode(
+        {
+            "sub": "00000000-0000-0000-0000-000000000004",
+            "iat": int((now - timedelta(minutes=20)).timestamp()),
+            "exp": int((now + timedelta(minutes=1)).timestamp()),
+            "iss": settings.APP_NAME.strip(),
+            "aud": settings.APP_NAME.strip(),
+        },
+        "old-secret-key-that-is-long-enough",
+        algorithm=security.ALGORITHM,
+        headers={"kid": "old"},
+    )
+    assert security.decode_access_token(old_token) is None
 
 
 def test_register_rejects_password_over_72_utf8_bytes(client):
@@ -393,8 +634,8 @@ def test_login_account_failures_merge_username_case(client, monkeypatch):
         f"{prefix}/auth/login",
         data={"username": "CASEUSER", "password": "wrong"},
     )
-    assert r.status_code == 429
-    assert r.json().get("success") is False
+    assert r.status_code == 401
+    assert r.json().get("detail") == "用户名或密码错误"
 
 
 def test_login_account_blocked_after_repeated_failures(client, monkeypatch):
@@ -414,8 +655,68 @@ def test_login_account_blocked_after_repeated_failures(client, monkeypatch):
         f"{prefix}/auth/login",
         data={"username": "nobody", "password": "wrong"},
     )
-    assert r.status_code == 429
-    assert r.json().get("success") is False
+    assert r.status_code == 401
+    assert r.json().get("detail") == "用户名或密码错误"
+
+
+def test_existing_user_db_lockout_persists_and_clears_on_success(client, db_session, monkeypatch):
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_USE_REDIS", False)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE", 100)
+    monkeypatch.setattr(config_module.settings, "AUTH_RATE_LIMIT_LOGIN_FAIL_MAX_PER_ACCOUNT", 2)
+    prefix = settings.API_V1_PREFIX
+    assert client.post(
+        f"{prefix}/auth/register",
+        json={"email": "lock@example.com", "username": "lockuser", "password": "secret1234"},
+    ).status_code == 201
+
+    for _ in range(2):
+        bad = client.post(f"{prefix}/auth/login", data={"username": "lockuser", "password": "wrong"})
+        assert bad.status_code == 401
+
+    row = db_session.execute(
+        select(UserAuthState).join(User, User.id == UserAuthState.user_id).where(User.username == "lockuser")
+    ).scalar_one()
+    assert row.failed_login_count == 2
+    assert row.locked_until is not None
+
+    locked = client.post(f"{prefix}/auth/login", data={"username": "lockuser", "password": "secret1234"})
+    assert locked.status_code == 401
+    assert locked.json().get("detail") == "用户名或密码错误"
+
+    row.locked_until = None
+    db_session.add(row)
+    db_session.commit()
+    ok = client.post(f"{prefix}/auth/login", data={"username": "lockuser", "password": "secret1234"})
+    assert ok.status_code == 200, ok.text
+    db_session.expire_all()
+    cleared = db_session.get(UserAuthState, row.user_id)
+    assert cleared is not None
+    assert cleared.failed_login_count == 0
+    assert cleared.locked_until is None
+    assert cleared.last_login_at is not None
+
+
+def test_login_success_writes_structured_security_event(client, db_session):
+    prefix = settings.API_V1_PREFIX
+    assert client.post(
+        f"{prefix}/auth/register",
+        json={"email": "audit@example.com", "username": "audituser", "password": "secret1234"},
+    ).status_code == 201
+    r = client.post(
+        f"{prefix}/auth/login",
+        data={"username": "audituser", "password": "secret1234"},
+        headers={"X-Request-ID": "rid-auth-1", "User-Agent": "pytest-agent"},
+    )
+    assert r.status_code == 200, r.text
+    db_session.expire_all()
+    ev = db_session.execute(
+        select(SecurityEvent).where(SecurityEvent.event_type == "auth.login.succeeded")
+    ).scalars().first()
+    assert ev is not None
+    assert ev.user_id is not None
+    assert ev.request_id == "rid-auth-1"
+    assert ev.user_agent == "pytest-agent"
 
 
 def test_forgot_password_rate_limited_by_ip(client, monkeypatch):
@@ -488,6 +789,8 @@ def test_openapi_contains_auth_and_me_paths_when_exposed(client):
         f"{prefix}/auth/register",
         f"{prefix}/auth/login",
         f"{prefix}/auth/forgot-password",
+        f"{prefix}/auth/logout",
+        f"{prefix}/auth/refresh",
         f"{prefix}/auth/reset-password",
         f"{prefix}/auth/registration-options",
         f"{prefix}/users/me",
@@ -516,6 +819,11 @@ def test_forgot_password_creates_token_and_reset_password_roundtrip(client, db_s
         ).status_code
         == 201
     )
+    assert client.post(
+        f"{prefix}/auth/login",
+        data={"username": email, "password": "oldSecret12"},
+    ).status_code == 200
+    assert int(db_session.scalar(select(func.count()).select_from(RefreshToken)) or 0) == 1
     with caplog.at_level(logging.INFO):
         r = client.post(f"{prefix}/auth/forgot-password", json={"email": email})
     assert r.status_code == 200
@@ -535,6 +843,14 @@ def test_forgot_password_creates_token_and_reset_password_roundtrip(client, db_s
         json={"token": raw_token, "password": new_pw},
     )
     assert rr.status_code == 200, rr.text
+    db_session.expire_all()
+    active_refresh_tokens = int(
+        db_session.scalar(
+            select(func.count()).select_from(RefreshToken).where(RefreshToken.revoked_at.is_(None))
+        )
+        or 0
+    )
+    assert active_refresh_tokens == 0
     assert client.post(
         f"{prefix}/auth/login",
         data={"username": email, "password": new_pw},

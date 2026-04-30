@@ -23,8 +23,6 @@ bindAppRouter(router);
 
 const auth = useAuthStore();
 auth.attachCrossTabSessionSync();
-if (auth.token) {
-  auth.fetchMe().catch(() => auth.logout());
-}
+auth.restoreSession().catch(() => auth.clearSession());
 
 app.mount("#app");
